@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm build:*)",
+      "Bash(node /project/ovogogogo/dist/bin/ovogogogo.js --help)"
+    ]
+  }
+}

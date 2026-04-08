@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.log
+.env
+progress_log.json
+ovogogogo_log.json
