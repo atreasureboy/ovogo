@@ -76,6 +76,8 @@ export interface Tool {
 export interface ToolContext {
   cwd: string
   permissionMode: 'auto' | 'ask' | 'deny'
+  /** AbortSignal — tools should honour this to support Ctrl+C cancellation */
+  signal?: AbortSignal
 }
 
 /**

@@ -6,7 +6,15 @@
       "Bash(wc:*)",
       "Bash(node -e ':*)",
       "Bash(npm run:*)",
-      "Bash(node dist/bin/ovogogogo.js --help)"
+      "Bash(node dist/bin/ovogogogo.js --help)",
+      "Bash(node dist/bin/ovogogogo.js --version)",
+      "Bash(OPENAI_API_KEY=sk-test node dist/bin/ovogogogo.js --help)",
+      "Bash(OPENAI_API_KEY=sk-test node:*)",
+      "Read(//project/skills/**)",
+      "Read(//project/tools/**)",
+      "Bash(cp /project/skills/sectoolkit.md /project/ovogogogo/.ovogo/skills/sectoolkit.md)",
+      "Bash(cp /project/skills/agentos/SKILL.md /project/ovogogogo/.ovogo/skills/agentos/SKILL.md)",
+      "Bash(node:*)"
     ]
   }
 }

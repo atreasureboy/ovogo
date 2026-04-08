@@ -81,7 +81,7 @@ Large pages are truncated — use start_index to paginate.`,
     },
   }
 
-  async execute(input: Record<string, unknown>, _context: ToolContext): Promise<ToolResult> {
+  async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
     const { url, max_length, start_index } = input as unknown as WebFetchInput
 
     if (!url || typeof url !== 'string') {
@@ -96,11 +96,25 @@ Large pages are truncated — use start_index to paginate.`,
     const startIdx = typeof start_index === 'number' ? start_index : 0
 
     try {
-      const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+      // Compose a single AbortController that fires on either timeout OR Ctrl+C.
+      // Reference: Claude Code WebFetchTool/utils.ts getWithPermittedRedirects()
+      const fetchController = new AbortController()
+      const timer = setTimeout(() => fetchController.abort('timeout'), FETCH_TIMEOUT_MS)
+
+      if (context.signal) {
+        if (context.signal.aborted) {
+          clearTimeout(timer)
+          return { content: 'Request cancelled.', isError: true }
+        }
+        context.signal.addEventListener(
+          'abort',
+          () => { clearTimeout(timer); fetchController.abort('user_cancelled') },
+          { once: true },
+        )
+      }
 
       const response = await fetch(url, {
-        signal: controller.signal,
+        signal: fetchController.signal,
         headers: {
           'User-Agent': 'ovogogogo/0.1.0 (autonomous code execution engine)',
           'Accept': 'text/html,application/xhtml+xml,text/plain,*/*',
@@ -144,7 +158,11 @@ Large pages are truncated — use start_index to paginate.`,
     } catch (err: unknown) {
       const error = err as Error
       if (error.name === 'AbortError') {
-        return { content: `Request timed out after ${FETCH_TIMEOUT_MS / 1000}s: ${url}`, isError: true }
+        const reason = (error as DOMException).cause ?? 'timeout'
+        const msg = reason === 'user_cancelled'
+          ? 'Request cancelled.'
+          : `Request timed out after ${FETCH_TIMEOUT_MS / 1000}s: ${url}`
+        return { content: msg, isError: true }
       }
       return { content: `Fetch error: ${error.message}`, isError: true }
     }

@@ -1,23 +1,20 @@
 /**
- * BashTool — shell command execution
+ * BashTool — shell command execution with proper abort support
  *
- * Distilled from Claude Code source:
- * src/tools/BashTool/BashTool.tsx
- * src/utils/Shell.js
+ * Reference: Claude Code src/tools/BashTool/BashTool.tsx, src/utils/Shell.js
  *
- * Core capability: execute shell commands with timeout, capture stdout+stderr,
- * handle background execution.
+ * Key change vs the previous promisified exec() approach:
+ * We use exec() in callback form so we hold a reference to the ChildProcess.
+ * When context.signal fires (Ctrl+C), we kill the entire process group
+ * (SIGTERM → SIGKILL after 5 s) — matching Claude Code's abort behaviour.
  */
 
-import { exec as execCb } from 'child_process'
-import { promisify } from 'util'
+import { exec } from 'child_process'
 import type { Tool, ToolContext, ToolDefinition, ToolResult } from '../core/types.js'
 import { BASH_DESCRIPTION } from '../prompts/tools.js'
 
-const execAsync = promisify(execCb)
-
-const MAX_OUTPUT_LENGTH = 30_000 // characters — truncate very long outputs
-const DEFAULT_TIMEOUT_MS = 120_000 // 2 minutes
+const MAX_OUTPUT_LENGTH = 30_000
+const DEFAULT_TIMEOUT_MS = 120_000
 
 export interface BashInput {
   command: string
@@ -68,7 +65,7 @@ export class BashTool implements Tool {
   }
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
-    const { command, timeout, run_in_background, description } = input as unknown as BashInput
+    const { command, timeout, run_in_background } = input as unknown as BashInput
 
     if (!command || typeof command !== 'string') {
       return { content: 'Error: command is required and must be a string', isError: true }
@@ -79,8 +76,8 @@ export class BashTool implements Tool {
       600_000,
     )
 
+    // ── Background mode (fire-and-forget) ───────────────────────
     if (run_in_background) {
-      // Spawn detached, don't wait
       const { spawn } = await import('child_process')
       const child = spawn('bash', ['-c', command], {
         detached: true,
@@ -95,43 +92,95 @@ export class BashTool implements Tool {
       }
     }
 
-    try {
-      const { stdout, stderr } = await execAsync(command, {
-        cwd: context.cwd,
-        timeout: timeoutMs,
-        maxBuffer: 50 * 1024 * 1024, // 50MB
-        env: { ...process.env, TERM: 'dumb' },
-        shell: '/bin/bash',
-      })
+    // ── Foreground mode with abort support ──────────────────────
+    // Use exec() callback form so we can kill the child on abort.
+    // Reference: Claude Code Shell.js kill-by-process-group approach.
+    return new Promise<ToolResult>((resolve) => {
+      let settled = false
 
-      const combined = [stdout, stderr].filter(Boolean).join('\n').trimEnd()
-      const output = truncateOutput(combined, MAX_OUTPUT_LENGTH)
-      return { content: output || '(no output)', isError: false }
-    } catch (err: unknown) {
-      const error = err as NodeJS.ErrnoException & {
-        stdout?: string
-        stderr?: string
-        code?: number
-        killed?: boolean
-        signal?: string
+      const child = exec(
+        command,
+        {
+          cwd: context.cwd,
+          timeout: timeoutMs,
+          maxBuffer: 50 * 1024 * 1024,
+          env: { ...process.env, TERM: 'dumb' },
+          shell: '/bin/bash',
+        },
+        (err, stdout, stderr) => {
+          // Remove the abort listener to prevent it firing after process ends
+          if (context.signal) {
+            context.signal.removeEventListener('abort', onAbort)
+          }
+
+          if (settled) return
+          settled = true
+
+          // Check if we were cancelled
+          if (context.signal?.aborted) {
+            resolve({ content: 'Command cancelled.', isError: true })
+            return
+          }
+
+          if (!err) {
+            const combined = [stdout, stderr].filter(Boolean).join('\n').trimEnd()
+            resolve({ content: truncateOutput(combined, MAX_OUTPUT_LENGTH) || '(no output)', isError: false })
+            return
+          }
+
+          const nodeErr = err as NodeJS.ErrnoException & {
+            killed?: boolean
+            signal?: string
+            stdout?: string
+            stderr?: string
+            code?: number
+          }
+
+          if (nodeErr.killed || nodeErr.signal === 'SIGTERM') {
+            resolve({ content: `Command timed out after ${timeoutMs / 1000}s`, isError: true })
+            return
+          }
+
+          // Non-zero exit — provide stdout+stderr so the LLM can diagnose
+          const out = [nodeErr.stdout ?? stdout, nodeErr.stderr ?? stderr].filter(Boolean).join('\n').trimEnd()
+          const exitCode = nodeErr.code ?? 1
+          resolve({
+            content: truncateOutput(`Exit code: ${exitCode}\n${out}`, MAX_OUTPUT_LENGTH).trimEnd(),
+            isError: false,  // non-zero exit is not necessarily fatal
+          })
+        },
+      )
+
+      // ── Abort handler — kill entire process group ────────────
+      // Reference: Claude Code Shell.js process.kill(-pid, 'SIGTERM')
+      const onAbort = () => {
+        if (settled) return
+        settled = true
+
+        const pid = child.pid
+        if (pid !== undefined) {
+          // Kill the process group (includes any subshells spawned by the command)
+          try { process.kill(-pid, 'SIGTERM') } catch {
+            try { child.kill('SIGTERM') } catch { /* ignore */ }
+          }
+          // SIGKILL fallback after 5 s for stubborn processes
+          setTimeout(() => {
+            try { process.kill(-pid, 'SIGKILL') } catch {
+              try { child.kill('SIGKILL') } catch { /* ignore */ }
+            }
+          }, 5_000)
+        }
+
+        resolve({ content: 'Command cancelled.', isError: true })
       }
 
-      if (error.killed || error.signal === 'SIGTERM') {
-        const msg = `Command timed out after ${timeoutMs / 1000}s: ${command}`
-        return { content: msg, isError: true }
+      if (context.signal) {
+        if (context.signal.aborted) {
+          onAbort()
+        } else {
+          context.signal.addEventListener('abort', onAbort, { once: true })
+        }
       }
-
-      // Non-zero exit code — capture stdout+stderr for debugging
-      const stdout = error.stdout ?? ''
-      const stderr = error.stderr ?? ''
-      const combined = [stdout, stderr].filter(Boolean).join('\n').trimEnd()
-      const output = truncateOutput(combined, MAX_OUTPUT_LENGTH)
-      const exitCode = error.code ?? 1
-
-      const result = `Exit code: ${exitCode}\n${output}`.trimEnd()
-      // Non-zero exit is NOT necessarily a fatal error — return as content
-      // so the LLM can decide whether to retry/fix
-      return { content: result, isError: false }
-    }
+    })
   }
 }

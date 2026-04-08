@@ -39,6 +39,9 @@ import { loadSettings } from '../src/config/settings.js'
 import { HookRunner, NoopHookRunner } from '../src/config/hooks.js'
 import { loadSkills, expandSkillPrompt } from '../src/skills/loader.js'
 import type { Skill } from '../src/skills/loader.js'
+import { loadClaudeMd } from '../src/config/claudemd.js'
+import { getMemoryDir, buildMemorySystemSection, getMemoryStats } from '../src/memory/index.js'
+import { buildFullSystemPrompt } from '../src/prompts/system.js'
 
 const VERSION = '0.1.0'
 
@@ -328,14 +331,15 @@ async function runRepl(
   renderer.info(`Ctrl+C to cancel · Ctrl+D to exit`)
 
   let running = false
-  let abortController = new AbortController()
 
+  // Ctrl+C: if a turn is running, tell the engine to abort it.
+  // engine.abort() propagates via AbortSignal into Bash (kills process group)
+  // and WebFetch (cancels the HTTP request) — reference: Claude Code abortController.ts
   process.on('SIGINT', () => {
     if (running) {
+      engine.abort()
       renderer.stopSpinner()
       renderer.warn('Cancelled.')
-      abortController.abort()
-      abortController = new AbortController()
       running = false
       renderer.writePrompt()
     } else {
@@ -523,6 +527,26 @@ async function main(): Promise<void> {
     renderer.info(`Skills: ${customSkills.length} custom skill(s) loaded — type /skills to list`)
   }
 
+  // Load CLAUDE.md files (project + user instructions)
+  const claudeMdFiles = await loadClaudeMd(cwd)
+  if (claudeMdFiles.length > 0) {
+    const labels = claudeMdFiles.map((f) => f.type).join(', ')
+    renderer.info(`CLAUDE.md: ${claudeMdFiles.length} file(s) loaded (${labels})`)
+  }
+
+  // Initialize memory system
+  const memoryDir = getMemoryDir(cwd)
+  const memStats = getMemoryStats(memoryDir)
+  if (memStats.hasIndex) {
+    renderer.info(`Memory: ${memStats.entryCount} entr${memStats.entryCount !== 1 ? 'ies' : 'y'} — ${memoryDir}`)
+  } else {
+    renderer.info(`Memory: initialized — ${memoryDir}`)
+  }
+
+  // Build the full system prompt once (CLAUDE.md + memory injected)
+  const memorySection = buildMemorySystemSection(memoryDir)
+  const systemPrompt = buildFullSystemPrompt(cwd, claudeMdFiles, memorySection)
+
   // Load MCP servers (non-fatal if config missing)
   let mcpConnections: ConnectedMcpClient[] = []
   const { tools: mcpTools, connections, errors: mcpErrors } = await loadMcpTools(cwd)
@@ -544,9 +568,10 @@ async function main(): Promise<void> {
     permissionMode: 'auto',
     extraTools: mcpTools,
     hookRunner,
+    systemPrompt,
   }
 
-  // Plan-mode config reuses everything but sets planMode=true
+  // Plan-mode config: same system prompt + planMode=true (engine filters write tools)
   const planConfig: EngineConfig = {
     ...config,
     planMode: true,

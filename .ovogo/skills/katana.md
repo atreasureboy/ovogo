@@ -1,0 +1,175 @@
+---
+name: katana
+description: katana — 智能 Web 爬虫
+---
+
+你是 katana 专家，拥有下方完整参考手册。根据用户的具体任务，给出精确的命令、参数解释和执行建议。
+
+用户任务：$ARGS
+
+---
+
+# katana — 智能 Web 爬虫
+
+## 基本信息
+
+| 项目 | 内容 |
+|------|------|
+| 二进制路径 | `/root/go/bin/katana` |
+| 项目来源 | ProjectDiscovery |
+| 适用场景 | Web 目录爬取、URL 发现、参数收集、JS 文件分析 |
+
+---
+
+## 核心参数速查
+
+| 参数 | 说明 |
+|------|------|
+| `-u <url>` | 指定目标 URL |
+| `-list <file>` | 从文件读取多个目标 |
+| `-d <depth>` | 爬取深度（默认 3） |
+| `-jc` | 解析 JavaScript 文件（发现更多 URL） |
+| `-silent` | 静默模式，只输出 URL |
+| `-o <file>` | 输出到文件 |
+| `-json` | JSON 格式输出 |
+| `-c <num>` | 并发数 |
+| `-p <num>` | 并行任务数 |
+| `-timeout <sec>` | 超时秒数 |
+| `-rl <num>` | 请求速率限制 |
+| `-H <header>` | 自定义请求头 |
+| `-ef <ext>` | 排除特定文件扩展名 |
+| `-em <ext>` | 只匹配特定扩展名 |
+| `-kf` | 保留爬取的文件 |
+| `-nc` | 不使用颜色 |
+| `-headless` | 无头浏览器模式（处理 JS 渲染页面） |
+| `-system-chrome` | 使用系统 Chrome |
+| `-xhr` | 捕获 XHR 请求 |
+| `-form` | 爬取表单内容 |
+| `-field <field>` | 只输出特定字段（url/path/method/body/header等） |
+| `-filter-regex <regex>` | 过滤 URL |
+| `-match-regex <regex>` | 只匹配特定 URL |
+| `-dr` | 禁止重定向跟随 |
+| `-proxy <url>` | 使用代理 |
+
+---
+
+## 典型使用场景
+
+### 1. 基础爬取（深度 2）
+```bash
+katana -u https://target.com -d 2 -silent
+```
+
+### 2. 深度爬取 + JS 解析（发现更多 API 端点）
+```bash
+katana -u https://target.com -d 5 -jc -silent -o urls.txt
+```
+
+### 3. 多目标批量爬取
+```bash
+katana -list live_urls.txt -d 3 -silent -o all_urls.txt
+```
+
+### 4. 无头浏览器模式（处理 SPA 应用）
+```bash
+katana -u https://target.com -headless -d 3 -silent -o spa_urls.txt
+```
+
+### 5. 收集所有 JS 文件
+```bash
+katana -u https://target.com -d 3 -em js -silent -o js_files.txt
+```
+
+### 6. 收集带参数的 URL（用于漏洞测试）
+```bash
+katana -u https://target.com -d 3 -jc -silent | \
+  grep '?' | sort -u > parameterized_urls.txt
+```
+
+### 7. 联动 gf 过滤感兴趣的 URL
+```bash
+# 收集 XSS 可能参数
+katana -u https://target.com -d 3 -silent | gf xss
+
+# 收集 SQL 注入可能参数
+katana -u https://target.com -d 3 -silent | gf sqli
+
+# 收集重定向参数
+katana -u https://target.com -d 3 -silent | gf redirect
+```
+
+### 8. 联动 dalfox 进行 XSS 扫描
+```bash
+katana -u https://target.com -d 3 -jc -silent | \
+  grep '=' | \
+  dalfox pipe -o xss_results.txt
+```
+
+### 9. 联动 sqlmap 进行 SQL 注入测试
+```bash
+katana -u https://target.com -d 3 -silent | \
+  grep '=' | \
+  head -20 | \
+  while read url; do
+    sqlmap -u "$url" --batch --level 2 --quiet
+  done
+```
+
+### 10. 只输出路径（不含域名）
+```bash
+katana -u https://target.com -d 3 -silent -field path | sort -u
+```
+
+### 11. 捕获 API 请求（XHR）
+```bash
+katana -u https://target.com -d 3 -xhr -silent | grep 'api/'
+```
+
+### 12. 使用 Cookie 进行认证后爬取
+```bash
+katana -u https://target.com -d 3 \
+       -H "Cookie: session=YOUR_SESSION_TOKEN" \
+       -jc -silent -o auth_urls.txt
+```
+
+---
+
+## 输出过滤技巧
+
+```bash
+# 提取所有唯一域名
+katana -u https://target.com -d 3 -silent | \
+  awk -F/ '{print $1"//"$3}' | sort -u
+
+# 提取所有带参数 URL
+katana -u https://target.com -d 3 -silent | grep -E '\?[^=]+=.'
+
+# 过滤静态资源（图片/CSS等）
+katana -u https://target.com -d 3 -silent | \
+  grep -vE '\.(png|jpg|gif|css|ico|svg|woff|ttf)$'
+
+# 提取所有 API 端点
+katana -u https://target.com -d 3 -jc -silent | \
+  grep -E '/api/|/v[0-9]+/'
+```
+
+---
+
+## 与其他爬虫对比
+
+| 工具 | 特点 | 适用场景 |
+|------|------|---------|
+| `katana` | 智能 JS 解析、速度快 | 现代 Web 应用 |
+| `gospider` | 功能全面，多格式 | 传统 Web 站点 |
+| `hakrawler` | 极简快速 | 快速 URL 收集 |
+| `waybackurls` | 历史 URL | 挖掘历史端点 |
+| `gau` | 多数据源聚合 | OSINT 结合 |
+
+---
+
+## 注意事项
+
+- JS 解析模式（`-jc`）会显著增加运行时间，但能发现更多端点
+- 无头浏览器模式需要 Chrome/Chromium，但能处理 JS 渲染的动态内容
+- 深度设置不宜太深（>5），容易陷入无限循环
+- 对于需要登录的目标，通过 `-H "Cookie: ..."` 传入认证信息

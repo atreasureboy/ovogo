@@ -6,20 +6,23 @@
  *
  * Resolution order (later entries override earlier):
  *   1. Built-in skills (shipped with ovogogogo)
- *   2. ~/.ovogo/skills/*.md  (global user skills)
- *   3. .ovogo/skills/*.md    (project-specific skills)
+ *   2. ~/.ovogo/skills/        (global user skills)
+ *   3. .ovogo/skills/          (project-specific skills)
  *
- * Skill file format (.ovogo/skills/deploy.md):
- * ─────────────────────────────────────────────
- * # Deploy to staging
- * Run the full deployment pipeline to the staging environment...
- * ─────────────────────────────────────────────
- * The first line (stripping leading #) becomes the description shown in /skills.
- * The full file content is the prompt sent to the engine.
+ * Supported file layouts:
+ *   .ovogo/skills/nmap.md          → skill name "nmap"  (flat file)
+ *   .ovogo/skills/agentos/SKILL.md → skill name "agentos"  (directory + SKILL.md)
  *
- * Skills support a simple $ARGS substitution: any text after the skill name
- * on the command line replaces $ARGS in the prompt.
- * Example: /review src/auth.ts  →  $ARGS = "src/auth.ts"
+ * YAML frontmatter (optional):
+ *   ---
+ *   name: nmap
+ *   description: nmap — 网络端口扫描与服务识别
+ *   ---
+ *   If present, name/description are read from it.
+ *   If absent, name = filename stem, description = first heading line.
+ *
+ * Skills support $ARGS substitution:
+ *   /nmap scan 10.0.0.1  →  $ARGS = "scan 10.0.0.1"
  */
 
 import { readdirSync, readFileSync, existsSync } from 'fs'
@@ -31,6 +34,93 @@ export interface Skill {
   description: string
   prompt: string
   source: 'builtin' | 'global' | 'project'
+}
+
+// ─────────────────────────────────────────────────────────────
+// YAML frontmatter parser (no external deps)
+// ─────────────────────────────────────────────────────────────
+
+function parseFrontmatter(content: string): {
+  frontmatter: Record<string, string>
+  body: string
+} {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/)
+  if (!match) return { frontmatter: {}, body: content }
+
+  const fm: Record<string, string> = {}
+  for (const line of match[1].split('\n')) {
+    const colonIdx = line.indexOf(':')
+    if (colonIdx > 0) {
+      const key = line.slice(0, colonIdx).trim()
+      // Strip surrounding quotes from value
+      const value = line.slice(colonIdx + 1).trim().replace(/^["']|["']$/g, '')
+      if (key) fm[key] = value
+    }
+  }
+
+  return { frontmatter: fm, body: (match[2] ?? '').trim() }
+}
+
+// ─────────────────────────────────────────────────────────────
+// File parser
+// ─────────────────────────────────────────────────────────────
+
+function parseSkillFile(
+  filePath: string,
+  defaultName: string,
+  source: 'global' | 'project',
+): Skill | null {
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim()
+    const { frontmatter, body } = parseFrontmatter(raw)
+
+    const name = (frontmatter.name ?? defaultName).trim()
+
+    // Description: frontmatter > first heading line > name
+    let description = frontmatter.description ?? ''
+    if (!description) {
+      const firstLine = (body || raw).split('\n').find((l) => l.trim()) ?? ''
+      description = firstLine.replace(/^#+\s*/, '').trim() || name
+    }
+
+    // Prompt: body (frontmatter stripped), or full raw if no frontmatter
+    const prompt = body || raw
+
+    return { name, description, prompt, source }
+  } catch {
+    return null
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Directory loader
+// ─────────────────────────────────────────────────────────────
+
+function loadFromDir(dir: string, source: 'global' | 'project'): Skill[] {
+  if (!existsSync(dir)) return []
+  const skills: Skill[] = []
+
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.md')) {
+        // Flat file: skills/nmap.md → name = "nmap"
+        const name = basename(entry.name, '.md')
+        const skill = parseSkillFile(join(dir, entry.name), name, source)
+        if (skill) skills.push(skill)
+      } else if (entry.isDirectory()) {
+        // Directory: skills/agentos/SKILL.md → name = "agentos"
+        const skillFile = join(dir, entry.name, 'SKILL.md')
+        if (existsSync(skillFile)) {
+          const skill = parseSkillFile(skillFile, entry.name, source)
+          if (skill) skills.push(skill)
+        }
+      }
+    }
+  } catch {
+    // ignore unreadable dirs
+  }
+
+  return skills
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -108,25 +198,8 @@ Steps:
 ]
 
 // ─────────────────────────────────────────────────────────────
-// Loader
+// Public API
 // ─────────────────────────────────────────────────────────────
-
-function loadFromDir(dir: string, source: 'global' | 'project'): Skill[] {
-  if (!existsSync(dir)) return []
-  const skills: Skill[] = []
-  try {
-    for (const file of readdirSync(dir).filter((f) => f.endsWith('.md'))) {
-      const name = basename(file, '.md')
-      const raw = readFileSync(join(dir, file), 'utf8').trim()
-      const firstLine = raw.split('\n').find((l) => l.trim()) ?? ''
-      const description = firstLine.replace(/^#+\s*/, '').trim() || name
-      skills.push({ name, description, prompt: raw, source })
-    }
-  } catch {
-    // ignore unreadable dirs
-  }
-  return skills
-}
 
 export function loadSkills(cwd: string): Map<string, Skill> {
   const map = new Map<string, Skill>()

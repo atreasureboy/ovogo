@@ -11,6 +11,8 @@
  */
 
 import { platform, release, type as osType } from 'os'
+import type { ClaudeMdFile } from '../config/claudemd.js'
+import { formatClaudeMdForPrompt } from '../config/claudemd.js'
 
 function getOSInfo(): string {
   const os = osType()
@@ -116,6 +118,34 @@ You do NOT need to ask permission for these routine actions. Proceed autonomousl
  */
 export function getMinimalSystemPrompt(cwd: string): string {
   return `You are an autonomous coding assistant. Working directory: ${cwd}. Execute tasks directly using available tools. Self-correct errors by reading output, diagnosing issues, and retrying.`
+}
+
+/**
+ * Assemble the full system prompt from:
+ *   1. Base agent prompt (identity, tools, git rules, etc.)
+ *   2. CLAUDE.md files (project + user instructions)
+ *   3. Memory system section (MEMORY.md index + write instructions)
+ *
+ * This is called once at startup and cached in EngineConfig.systemPrompt.
+ * Sub-agents get their own type-specific prompts instead.
+ */
+export function buildFullSystemPrompt(
+  cwd: string,
+  claudeMdFiles: ClaudeMdFile[],
+  memorySection: string,
+): string {
+  const parts: string[] = [getSystemPrompt(cwd)]
+
+  const claudeMdSection = formatClaudeMdForPrompt(claudeMdFiles)
+  if (claudeMdSection) {
+    parts.push(claudeMdSection)
+  }
+
+  if (memorySection) {
+    parts.push(memorySection)
+  }
+
+  return parts.join('\n\n---\n\n')
 }
 
 /**
