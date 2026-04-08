@@ -2,7 +2,7 @@
 /**
  * ovogogogo — Autonomous Code Execution Engine
  *
- * Claude Code-style interactive CLI. No React, no Ink — pure terminal.
+ * ovogogogo-style interactive CLI. No React, no Ink — pure terminal.
  *
  * Usage:
  *   ovogogogo                              # interactive REPL
@@ -39,7 +39,7 @@ import { loadSettings } from '../src/config/settings.js'
 import { HookRunner, NoopHookRunner } from '../src/config/hooks.js'
 import { loadSkills, expandSkillPrompt } from '../src/skills/loader.js'
 import type { Skill } from '../src/skills/loader.js'
-import { loadClaudeMd } from '../src/config/claudemd.js'
+import { loadOvogoMd } from '../src/config/ovogomd.js'
 import { getMemoryDir, buildMemorySystemSection, getMemoryStats } from '../src/memory/index.js'
 import { buildFullSystemPrompt } from '../src/prompts/system.js'
 
@@ -334,7 +334,7 @@ async function runRepl(
 
   // Ctrl+C: if a turn is running, tell the engine to abort it.
   // engine.abort() propagates via AbortSignal into Bash (kills process group)
-  // and WebFetch (cancels the HTTP request) — reference: Claude Code abortController.ts
+  // and WebFetch (cancels the HTTP request)
   process.on('SIGINT', () => {
     if (running) {
       engine.abort()
@@ -527,11 +527,11 @@ async function main(): Promise<void> {
     renderer.info(`Skills: ${customSkills.length} custom skill(s) loaded — type /skills to list`)
   }
 
-  // Load CLAUDE.md files (project + user instructions)
-  const claudeMdFiles = await loadClaudeMd(cwd)
-  if (claudeMdFiles.length > 0) {
-    const labels = claudeMdFiles.map((f) => f.type).join(', ')
-    renderer.info(`CLAUDE.md: ${claudeMdFiles.length} file(s) loaded (${labels})`)
+  // Load OVOGO.md files (project + user instructions)
+  const ovogoMdFiles = await loadOvogoMd(cwd)
+  if (ovogoMdFiles.length > 0) {
+    const labels = ovogoMdFiles.map((f) => f.type).join(', ')
+    renderer.info(`OVOGO.md: ${ovogoMdFiles.length} file(s) loaded (${labels})`)
   }
 
   // Initialize memory system
@@ -543,9 +543,9 @@ async function main(): Promise<void> {
     renderer.info(`Memory: initialized — ${memoryDir}`)
   }
 
-  // Build the full system prompt once (CLAUDE.md + memory injected)
+  // Build the full system prompt once (OVOGO.md + memory injected)
   const memorySection = buildMemorySystemSection(memoryDir)
-  const systemPrompt = buildFullSystemPrompt(cwd, claudeMdFiles, memorySection)
+  const systemPrompt = buildFullSystemPrompt(cwd, ovogoMdFiles, memorySection)
 
   // Load MCP servers (non-fatal if config missing)
   let mcpConnections: ConnectedMcpClient[] = []

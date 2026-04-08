@@ -1,6 +1,5 @@
 /**
- * Tool descriptions — distilled from Claude Code source
- * Reference: src/tools/BashTool/prompt.ts, src/tools/FileReadTool/, etc.
+ * Tool descriptions
  */
 
 export const BASH_DESCRIPTION = `Executes a bash command and returns its output (stdout + stderr combined).

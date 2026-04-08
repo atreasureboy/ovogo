@@ -97,7 +97,7 @@ Large pages are truncated — use start_index to paginate.`,
 
     try {
       // Compose a single AbortController that fires on either timeout OR Ctrl+C.
-      // Reference: Claude Code WebFetchTool/utils.ts getWithPermittedRedirects()
+      // Handle permitted redirects
       const fetchController = new AbortController()
       const timer = setTimeout(() => fetchController.abort('timeout'), FETCH_TIMEOUT_MS)
 

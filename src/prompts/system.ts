@@ -1,18 +1,13 @@
 /**
  * System Prompt Engineering — Soul of ovogogogo
  *
- * Extracted and distilled from Claude Code source:
- * - src/constants/prompts.ts  (getSystemPrompt)
- * - src/tools/BashTool/prompt.ts (getSimplePrompt)
- * - src/coordinator/coordinatorMode.ts (getCoordinatorUserContext)
- *
  * This is the "soul" — the prompting logic that drives autonomous reasoning,
  * task decomposition, error self-correction, and tool usage discipline.
  */
 
 import { platform, release, type as osType } from 'os'
-import type { ClaudeMdFile } from '../config/claudemd.js'
-import { formatClaudeMdForPrompt } from '../config/claudemd.js'
+import type { OvogoMdFile } from '../config/ovogomd.js'
+import { formatOvogoMdForPrompt } from '../config/ovogomd.js'
 
 function getOSInfo(): string {
   const os = osType()
@@ -123,7 +118,7 @@ export function getMinimalSystemPrompt(cwd: string): string {
 /**
  * Assemble the full system prompt from:
  *   1. Base agent prompt (identity, tools, git rules, etc.)
- *   2. CLAUDE.md files (project + user instructions)
+ *   2. OVOGO.md files (project + user instructions)
  *   3. Memory system section (MEMORY.md index + write instructions)
  *
  * This is called once at startup and cached in EngineConfig.systemPrompt.
@@ -131,14 +126,14 @@ export function getMinimalSystemPrompt(cwd: string): string {
  */
 export function buildFullSystemPrompt(
   cwd: string,
-  claudeMdFiles: ClaudeMdFile[],
+  ovogoMdFiles: OvogoMdFile[],
   memorySection: string,
 ): string {
   const parts: string[] = [getSystemPrompt(cwd)]
 
-  const claudeMdSection = formatClaudeMdForPrompt(claudeMdFiles)
-  if (claudeMdSection) {
-    parts.push(claudeMdSection)
+  const ovogoMdSection = formatOvogoMdForPrompt(ovogoMdFiles)
+  if (ovogoMdSection) {
+    parts.push(ovogoMdSection)
   }
 
   if (memorySection) {

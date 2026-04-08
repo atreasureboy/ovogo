@@ -1,25 +1,5 @@
 /**
  * AgentTool — spawn a specialized sub-agent to handle a focused subtask
- *
- * Distilled from Claude Code source:
- * - src/tools/AgentTool/runAgent.ts   (sub-engine execution)
- * - src/tools/AgentTool/prompt.ts     (description and when-to-use)
- *
- * Sub-agent types:
- * ┌─────────────────┬───────────────────────────────────────────────────────┐
- * │ general-purpose │ All tools, standard system prompt                     │
- * │ explore         │ Read-only tools (Read/Glob/Grep/WebFetch/WebSearch)    │
- * │ plan            │ Read-only + plan-mode prompt (outputs step-by-step plan)│
- * │ code-reviewer   │ Read-only + focused code review prompt                │
- * └─────────────────┴───────────────────────────────────────────────────────┘
- *
- * Design:
- * - Parent engine calls AgentTool with {description, prompt, subagent_type}
- * - AgentTool creates a fresh child ExecutionEngine with type-appropriate config
- * - Child has independent conversation history (clean context)
- * - Child shares the same renderer (visual nesting via magenta stripe)
- * - Child result is returned as a string to the parent
- * - Recursion guard: sub-agents cannot spawn further sub-agents (depth=1 limit)
  */
 
 import type { Tool, ToolContext, ToolDefinition, ToolResult } from '../core/types.js'

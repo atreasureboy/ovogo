@@ -1,13 +1,13 @@
 /**
- * CLAUDE.md loader — project instruction files injected into the system prompt
+ * OVOGO.md loader — project instruction files injected into the system prompt
  *
- * Resolution order (reference: Claude Code src/utils/claudemd.ts):
- *   1. ~/.ovogo/CLAUDE.md              — user-level global instructions
+ * Resolution order:
+ *   1. ~/.ovogo/OVOGO.md              — user-level global instructions
  *   2. Walk from git-root → cwd:
- *      - {dir}/CLAUDE.md              — project instructions (checked in)
- *      - {dir}/.ovogo/CLAUDE.md       — project-private instructions (gitignored)
+ *      - {dir}/OVOGO.md              — project instructions (checked in)
+ *      - {dir}/.ovogo/OVOGO.md       — project-private instructions (gitignored)
  *
- * Limits (matching Claude Code):
+ * Limits:
  *   - Max 200 lines per file (rest truncated)
  *   - Max 25 000 bytes per file (rest truncated)
  *
@@ -20,7 +20,7 @@ import { join, dirname, parse } from 'path'
 import { homedir } from 'os'
 import { execSync } from 'child_process'
 
-export interface ClaudeMdFile {
+export interface OvogoMdFile {
   path: string
   content: string
   type: 'user' | 'project' | 'project-private'
@@ -84,11 +84,11 @@ function dirsUpToRoot(cwd: string, gitRoot: string): string[] {
   return dirs.reverse()
 }
 
-export async function loadClaudeMd(cwd: string): Promise<ClaudeMdFile[]> {
-  const files: ClaudeMdFile[] = []
+export async function loadOvogoMd(cwd: string): Promise<OvogoMdFile[]> {
+  const files: OvogoMdFile[] = []
 
-  // 1. User-level: ~/.ovogo/CLAUDE.md
-  const userPath = join(homedir(), '.ovogo', 'CLAUDE.md')
+  // 1. User-level: ~/.ovogo/OVOGO.md
+  const userPath = join(homedir(), '.ovogo', 'OVOGO.md')
   const userContent = readAndTruncate(userPath)
   if (userContent) {
     files.push({ path: userPath, content: userContent, type: 'user' })
@@ -100,14 +100,14 @@ export async function loadClaudeMd(cwd: string): Promise<ClaudeMdFile[]> {
 
   for (const dir of dirs) {
     // Project instructions (checked into codebase)
-    const projectPath = join(dir, 'CLAUDE.md')
+    const projectPath = join(dir, 'OVOGO.md')
     if (existsSync(projectPath) && projectPath !== userPath) {
       const content = readAndTruncate(projectPath)
       if (content) files.push({ path: projectPath, content, type: 'project' })
     }
 
-    // Project-private instructions (.ovogo/CLAUDE.md — add to .gitignore)
-    const privatePath = join(dir, '.ovogo', 'CLAUDE.md')
+    // Project-private instructions (.ovogo/OVOGO.md — add to .gitignore)
+    const privatePath = join(dir, '.ovogo', 'OVOGO.md')
     if (existsSync(privatePath)) {
       const content = readAndTruncate(privatePath)
       if (content) files.push({ path: privatePath, content, type: 'project-private' })
@@ -117,7 +117,7 @@ export async function loadClaudeMd(cwd: string): Promise<ClaudeMdFile[]> {
   return files
 }
 
-export function formatClaudeMdForPrompt(files: ClaudeMdFile[]): string {
+export function formatOvogoMdForPrompt(files: OvogoMdFile[]): string {
   if (files.length === 0) return ''
 
   const sections = files.map((f) => {

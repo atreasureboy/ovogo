@@ -1,18 +1,13 @@
 /**
  * Think-Act-Observe Engine — with streaming output
  *
- * Distilled from:
- * - src/QueryEngine.ts         (top-level orchestration)
- * - src/query.ts               (API call + tool execution loop)
- * - src/services/tools/toolOrchestration.ts  (parallel vs serial batching)
- *
  * Key improvements over naïve implementation:
  *
- * 1. Parallel tool execution (reference: toolOrchestration.ts)
+ * 1. Parallel tool execution
  *    Read-only tools (Read/Glob/Grep/WebFetch/WebSearch) are batched and run
  *    with Promise.all.  Write/exec tools run serially.
  *
- * 2. AbortController per turn (reference: abortController.ts)
+ * 2. AbortController per turn
  *    engine.abort() cancels the current turn at any point — including inside
  *    long-running Bash commands and network fetches.
  *
@@ -73,7 +68,6 @@ const PLAN_MODE_TOOLS = new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'
 /**
  * Concurrency-safe tools: pure reads with no side-effects.
  * These can run in parallel within a single LLM response.
- * Reference: Claude Code isConcurrencySafe flag on each tool.
  */
 const CONCURRENCY_SAFE_TOOLS = new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'])
 
@@ -81,7 +75,6 @@ const CONCURRENCY_SAFE_TOOLS = new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'Web
  * Partition tool calls into batches for scheduling:
  * - Consecutive safe (read-only) tools → one batch, run with Promise.all
  * - Any unsafe (write/exec) tool → its own serial batch
- * Reference: Claude Code toolOrchestration.ts partitionToolCalls()
  */
 function partitionToolCalls(calls: ParsedToolCall[]): ToolBatch[] {
   const batches: ToolBatch[] = []
@@ -324,7 +317,6 @@ export class ExecutionEngine {
         })
 
         // ── Schedule: parallel (safe) vs serial (unsafe) ─────────
-        // Reference: Claude Code toolOrchestration.ts
         const batches = partitionToolCalls(parsedCalls)
 
         for (const batch of batches) {

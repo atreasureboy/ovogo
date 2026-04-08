@@ -1,7 +1,7 @@
 /**
  * Interactive input handler — raw readline with history support
  *
- * Provides Claude Code-style input:
+ * Provides ovogogogo-style input:
  * - ❯ prompt glyph
  * - Arrow key history navigation
  * - Ctrl+C to cancel / Ctrl+D to exit

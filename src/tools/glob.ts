@@ -60,7 +60,7 @@ export class GlobTool implements Tool {
         return { content: `No files found matching: ${pattern} in ${cwd}`, isError: false }
       }
 
-      // Sort by modification time (newest first) — mirrors Claude Code behavior
+      // Sort by modification time (newest first)
       const withMtime = await Promise.all(
         files.map(async (f) => {
           try {

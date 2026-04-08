@@ -1,12 +1,10 @@
 /**
  * BashTool — shell command execution with proper abort support
  *
- * Reference: Claude Code src/tools/BashTool/BashTool.tsx, src/utils/Shell.js
- *
  * Key change vs the previous promisified exec() approach:
  * We use exec() in callback form so we hold a reference to the ChildProcess.
  * When context.signal fires (Ctrl+C), we kill the entire process group
- * (SIGTERM → SIGKILL after 5 s) — matching Claude Code's abort behaviour.
+ * (SIGTERM → SIGKILL after 5 s)
  */
 
 import { exec } from 'child_process'
@@ -94,7 +92,7 @@ export class BashTool implements Tool {
 
     // ── Foreground mode with abort support ──────────────────────
     // Use exec() callback form so we can kill the child on abort.
-    // Reference: Claude Code Shell.js kill-by-process-group approach.
+    // Kill by process group approach.
     return new Promise<ToolResult>((resolve) => {
       let settled = false
 
@@ -152,7 +150,7 @@ export class BashTool implements Tool {
       )
 
       // ── Abort handler — kill entire process group ────────────
-      // Reference: Claude Code Shell.js process.kill(-pid, 'SIGTERM')
+      // Send SIGTERM to process group
       const onAbort = () => {
         if (settled) return
         settled = true

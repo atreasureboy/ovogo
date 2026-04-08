@@ -79,7 +79,7 @@ const LOGO_LINES = [
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
-// Verbs extracted from Claude Code constants/spinnerVerbs.ts
+// Verbs for spinner animation
 export const SPINNER_VERBS = [
   'Accomplishing',
   'Architecting',

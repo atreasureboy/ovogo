@@ -1,8 +1,6 @@
 /**
  * Memory system — persistent cross-session memory for ovogogogo
  *
- * Reference: Claude Code src/memdir/, src/utils/paths.ts
- *
  * Storage layout:
  *   ~/.ovogo/projects/{project-slug}/memory/
  *     MEMORY.md            ← index file (loaded into every system prompt)
@@ -28,7 +26,7 @@
  *   type: user | feedback | project | reference
  *   ---
  *
- * MEMORY.md limits (matching Claude Code):
+ * MEMORY.md limits:
  *   - 200 lines max (rest truncated and not loaded)
  *   - 25 000 bytes max
  */
@@ -140,7 +138,7 @@ This directory persists between conversations. Read from it to recall past conte
 - **Project** — ongoing goals, decisions, deadlines, stakeholders
 - **Reference** — pointers to external resources (dashboards, issue trackers, docs)
 
-Do NOT save: code patterns derivable from reading the codebase, git history, or anything already in CLAUDE.md.
+Do NOT save: code patterns derivable from reading the codebase, git history, or anything already in OVOGO.md.
 
 ### How to save (2 steps)
 

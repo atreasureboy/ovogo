@@ -2,9 +2,8 @@
  * FileEditTool — exact string replacement in files
  * Reference: src/tools/FileEditTool/
  *
- * The key insight from Claude Code source: file edits must be EXACT string
- * matches (including whitespace/indentation). This prevents accidental
- * changes and makes diffs reviewable.
+ * File edits must be EXACT string matches (including whitespace/indentation).
+ * This prevents accidental changes and makes diffs reviewable.
  */
 
 import { readFile, writeFile } from 'fs/promises'

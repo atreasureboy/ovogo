@@ -1,11 +1,6 @@
 /**
  * Conversation Compact — auto-summarize when context grows too large
  *
- * Distilled from Claude Code source:
- * - src/services/compact/autoCompact.ts  (threshold logic)
- * - src/services/compact/prompt.ts       (DETAILED_ANALYSIS_INSTRUCTION + NO_TOOLS_PREAMBLE)
- * - src/services/compact/compact.ts      (compactConversation)
- *
  * Strategy:
  *   1. Estimate token count of current conversation (~4 chars/token)
  *   2. When it exceeds COMPACT_THRESHOLD_TOKENS, call the LLM to summarize
@@ -53,7 +48,7 @@ export function shouldCompact(messages: OpenAIMessage[], threshold = COMPACT_THR
   return estimateTokens(messages) > threshold
 }
 
-// ── Compact prompt (from Claude Code source) ──────────────────────────────────
+// ── Compact prompt ──────────────────────────────────
 
 const NO_TOOLS_PREAMBLE = `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
 Do NOT use any tools. Your entire response must be a plain text summary.

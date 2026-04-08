@@ -7,7 +7,7 @@
 ## 一、用户核心需求
 
 ### 项目定位
-轻量级、OpenAI 调用方式的 mini 版 Claude Code。
+轻量级、OpenAI 调用方式的自主代码执行引擎 ovogogogo。
 不是 Anthropic SDK 版本，是 **OpenAI 兼容接口** 调用。
 
 ### 源码路径
@@ -126,7 +126,7 @@
 - Think-Act-Observe 核心循环
 - OpenAI 兼容 API
 - 6 个核心工具 (Bash/Read/Write/Edit/Glob/Grep)
-- Claude Code 风格 TUI (✻ spinner, ⎿ tool display, ❯ prompt, ANSI colors)
+- ovogogogo 风格 TUI (✻ spinner, ⎿ tool display, ❯ prompt, ANSI colors)
 - 交互式 REPL + 内置命令 (/clear /model /history /help /exit)
 - System Prompt 工程（从源码提炼）
 - 断点续传 progress log
