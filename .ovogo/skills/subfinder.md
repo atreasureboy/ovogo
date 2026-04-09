@@ -30,7 +30,7 @@ description: subfinder — 子域名枚举工具
 | `-o <file>` | 输出结果到文件 |
 | `-oJ` | 输出 JSON 格式 |
 | `-silent` | 静默模式，只输出结果 |
-| `-t <num>` | 并发线程数（默认 10） |
+| `-t <num>` | 并发线程数（默认 10，64核推荐 **100**） |
 | `-timeout <sec>` | 超时秒数（默认 30） |
 | `-recursive` | 递归枚举子域名 |
 | `-all` | 使用所有数据源（更慢但更全） |
@@ -43,9 +43,9 @@ description: subfinder — 子域名枚举工具
 
 ## 典型使用场景
 
-### 1. 基础单域名枚举
+### 1. 基础单域名枚举（高并发）
 ```bash
-subfinder -d target.com -silent -o subs.txt
+/root/go/bin/subfinder -d target.com -t 100 -silent -o /SESSION/subs.txt
 ```
 
 ### 2. 显示来源数据

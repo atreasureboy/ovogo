@@ -1,0 +1,11 @@
+# Nuclei commands for WordPress 6.9.4 vulnerabilities
+/root/go/bin/nuclei -u https://zhhovo.top -t /project/ovogogogo/sessions/session_2026-04-09_0638/pocs/CVE-2018-7422.yaml -silent
+/root/go/bin/nuclei -u https://zhhovo.top -t /project/ovogogogo/sessions/session_2026-04-09_0638/pocs/CVE-2014-8799.yaml -silent
+/root/go/bin/nuclei -u https://zhhovo.top -t /project/ovogogogo/sessions/session_2026-04-09_0638/pocs/CVE-2013-7240.yaml -silent
+
+# Nuclei commands for Elementor 3.32.3 vulnerabilities
+/root/go/bin/nuclei -u https://zhhovo.top -t /project/ovogogogo/sessions/session_2026-04-09_0638/pocs/CVE-2023-33922.yaml -silent
+/root/go/bin/nuclei -u https://zhhovo.top -t /project/ovogogogo/sessions/session_2026-04-09_0638/pocs/CVE-2021-24891.yaml -silent
+
+# Nuclei commands for related plugins (jQuery Migrate context)
+/root/go/bin/nuclei -u https://zhhovo.top -t /project/ovogogogo/sessions/session_2026-04-09_0638/pocs/CVE-2025-24651.yaml -silent

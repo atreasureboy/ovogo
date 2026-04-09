@@ -55,81 +55,79 @@ description: katana — 智能 Web 爬虫
 
 ## 典型使用场景
 
-### 1. 基础爬取（深度 2）
+### 1. 基础爬取（推荐参数）
+
 ```bash
-katana -u https://target.com -d 2 -silent
+# ✅ 标准爬取：深度 2，超时 30s，避免卡死
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent -o /SESSION/katana_urls.txt
+
+# 带 JS 解析（发现更多 API 端点，稍慢）
+/root/go/bin/katana -u https://target.com -d 2 -jc -timeout 30 -silent -o /SESSION/katana_js.txt
 ```
 
-### 2. 深度爬取 + JS 解析（发现更多 API 端点）
+### 2. 多目标批量爬取
+
 ```bash
-katana -u https://target.com -d 5 -jc -silent -o urls.txt
+/root/go/bin/katana -list /SESSION/live_urls.txt -d 2 -timeout 30 -silent -o /SESSION/katana_all.txt
 ```
 
-### 3. 多目标批量爬取
+### 3. 无头浏览器模式（处理 SPA 应用）
+
 ```bash
-katana -list live_urls.txt -d 3 -silent -o all_urls.txt
+/root/go/bin/katana -u https://target.com -headless -d 2 -timeout 60 -silent -o /SESSION/katana_spa.txt
 ```
 
-### 4. 无头浏览器模式（处理 SPA 应用）
+### 4. 收集所有 JS 文件
+
 ```bash
-katana -u https://target.com -headless -d 3 -silent -o spa_urls.txt
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -em js -silent -o /SESSION/katana_js_files.txt
 ```
 
-### 5. 收集所有 JS 文件
+### 5. 收集带参数的 URL（用于漏洞测试）
+
 ```bash
-katana -u https://target.com -d 3 -em js -silent -o js_files.txt
+/root/go/bin/katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
+  grep '?' | sort -u > /SESSION/katana_params.txt
 ```
 
-### 6. 收集带参数的 URL（用于漏洞测试）
+### 6. 联动 gf 过滤感兴趣的 URL
+
 ```bash
-katana -u https://target.com -d 3 -jc -silent | \
-  grep '?' | sort -u > parameterized_urls.txt
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | gf xss
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | gf sqli
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | gf redirect
 ```
 
-### 7. 联动 gf 过滤感兴趣的 URL
+### 7. 联动 dalfox 进行 XSS 扫描
+
 ```bash
-# 收集 XSS 可能参数
-katana -u https://target.com -d 3 -silent | gf xss
-
-# 收集 SQL 注入可能参数
-katana -u https://target.com -d 3 -silent | gf sqli
-
-# 收集重定向参数
-katana -u https://target.com -d 3 -silent | gf redirect
+/root/go/bin/katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
+  grep '=' | dalfox pipe -o /SESSION/xss_results.txt
 ```
 
-### 8. 联动 dalfox 进行 XSS 扫描
-```bash
-katana -u https://target.com -d 3 -jc -silent | \
-  grep '=' | \
-  dalfox pipe -o xss_results.txt
-```
+### 8. 联动 sqlmap 进行 SQL 注入测试
 
-### 9. 联动 sqlmap 进行 SQL 注入测试
 ```bash
-katana -u https://target.com -d 3 -silent | \
-  grep '=' | \
-  head -20 | \
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | \
+  grep '=' | head -20 | \
   while read url; do
     sqlmap -u "$url" --batch --level 2 --quiet
   done
 ```
 
-### 10. 只输出路径（不含域名）
+### 9. 只输出路径 / API 端点
+
 ```bash
-katana -u https://target.com -d 3 -silent -field path | sort -u
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent -field path | sort -u
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -xhr -silent | grep 'api/'
 ```
 
-### 11. 捕获 API 请求（XHR）
-```bash
-katana -u https://target.com -d 3 -xhr -silent | grep 'api/'
-```
+### 10. 使用 Cookie 进行认证后爬取
 
-### 12. 使用 Cookie 进行认证后爬取
 ```bash
-katana -u https://target.com -d 3 \
-       -H "Cookie: session=YOUR_SESSION_TOKEN" \
-       -jc -silent -o auth_urls.txt
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 \
+    -H "Cookie: session=YOUR_SESSION_TOKEN" \
+    -jc -silent -o /SESSION/katana_auth.txt
 ```
 
 ---
@@ -138,18 +136,18 @@ katana -u https://target.com -d 3 \
 
 ```bash
 # 提取所有唯一域名
-katana -u https://target.com -d 3 -silent | \
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | \
   awk -F/ '{print $1"//"$3}' | sort -u
 
 # 提取所有带参数 URL
-katana -u https://target.com -d 3 -silent | grep -E '\?[^=]+=.'
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | grep -E '\?[^=]+=.'
 
 # 过滤静态资源（图片/CSS等）
-katana -u https://target.com -d 3 -silent | \
+/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | \
   grep -vE '\.(png|jpg|gif|css|ico|svg|woff|ttf)$'
 
 # 提取所有 API 端点
-katana -u https://target.com -d 3 -jc -silent | \
+/root/go/bin/katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
   grep -E '/api/|/v[0-9]+/'
 ```
 
@@ -171,5 +169,6 @@ katana -u https://target.com -d 3 -jc -silent | \
 
 - JS 解析模式（`-jc`）会显著增加运行时间，但能发现更多端点
 - 无头浏览器模式需要 Chrome/Chromium，但能处理 JS 渲染的动态内容
-- 深度设置不宜太深（>5），容易陷入无限循环
+- **必须设置 `-timeout`**：默认无超时，爬大型站点会卡死。普通站用 30s，认证后爬取用 60s
+- 深度设置不宜太深（>3），容易陷入无限循环；**推荐 `-d 2`**
 - 对于需要登录的目标，通过 `-H "Cookie: ..."` 传入认证信息

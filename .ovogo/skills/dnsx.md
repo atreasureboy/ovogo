@@ -43,7 +43,7 @@ description: dnsx — DNS 查询与解析工具
 | `-silent` | 静默模式 |
 | `-r <resolver>` | 指定 DNS 服务器 |
 | `-rL <file>` | 从文件读取 DNS 服务器列表 |
-| `-t <num>` | 并发线程数 |
+| `-t <num>` | 并发线程数（64核推荐 **200**） |
 | `-timeout <sec>` | 超时秒数 |
 | `-retry <num>` | 重试次数 |
 | `-o <file>` | 输出到文件 |

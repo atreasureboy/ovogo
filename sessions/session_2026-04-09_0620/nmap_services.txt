@@ -1,0 +1,72 @@
+# Nmap 7.94SVN scan initiated Thu Apr  9 06:23:19 2026 as: nmap -sV -sC -p 6211,8888,9193,18415,23667,36269,43005 -oN /project/ovogogogo/sessions/session_2026-04-09_0620/nmap_services.txt zhhovo.top
+Nmap scan report for zhhovo.top (39.106.227.104)
+Host is up (0.00029s latency).
+
+PORT      STATE SERVICE VERSION
+6211/tcp  open  domain  (generic dns response: SERVFAIL)
+| fingerprint-strings: 
+|   DNSVersionBindReqTCP: 
+|     version
+|_    bind
+8888/tcp  open  domain  (generic dns response: SERVFAIL)
+| fingerprint-strings: 
+|   DNSVersionBindReqTCP: 
+|     version
+|_    bind
+9193/tcp  open  domain  (generic dns response: SERVFAIL)
+| fingerprint-strings: 
+|   DNSVersionBindReqTCP: 
+|     version
+|_    bind
+18415/tcp open  domain  (generic dns response: SERVFAIL)
+| fingerprint-strings: 
+|   DNSVersionBindReqTCP: 
+|     version
+|_    bind
+23667/tcp open  domain? (generic dns response: SERVFAIL)
+| fingerprint-strings: 
+|   DNSVersionBindReqTCP: 
+|     version
+|_    bind
+36269/tcp open  domain  (generic dns response: SERVFAIL)
+| fingerprint-strings: 
+|   DNSVersionBindReqTCP: 
+|     version
+|_    bind
+43005/tcp open  domain  (generic dns response: SERVFAIL)
+| fingerprint-strings: 
+|   DNSVersionBindReqTCP: 
+|     version
+|_    bind
+7 services unrecognized despite returning data. If you know the service/version, please submit the following fingerprints at https://nmap.org/cgi-bin/submit.cgi?new-service :
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port6211-TCP:V=7.94SVN%I=7%D=4/9%Time=69D74602%P=x86_64-pc-linux-gnu%r(
+SF:DNSVersionBindReqTCP,20,"\0\x1e\0\x06\x81\x82\0\x01\0\0\0\0\0\0\x07vers
+SF:ion\x04bind\0\0\x10\0\x03");
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port8888-TCP:V=7.94SVN%I=7%D=4/9%Time=69D74611%P=x86_64-pc-linux-gnu%r(
+SF:DNSVersionBindReqTCP,20,"\0\x1e\0\x06\x81\x82\0\x01\0\0\0\0\0\0\x07vers
+SF:ion\x04bind\0\0\x10\0\x03");
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port9193-TCP:V=7.94SVN%I=7%D=4/9%Time=69D74602%P=x86_64-pc-linux-gnu%r(
+SF:DNSVersionBindReqTCP,20,"\0\x1e\0\x06\x81\x82\0\x01\0\0\0\0\0\0\x07vers
+SF:ion\x04bind\0\0\x10\0\x03");
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port18415-TCP:V=7.94SVN%I=7%D=4/9%Time=69D74602%P=x86_64-pc-linux-gnu%r
+SF:(DNSVersionBindReqTCP,20,"\0\x1e\0\x06\x81\x82\0\x01\0\0\0\0\0\0\x07ver
+SF:sion\x04bind\0\0\x10\0\x03");
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port23667-TCP:V=7.94SVN%I=7%D=4/9%Time=69D74602%P=x86_64-pc-linux-gnu%r
+SF:(DNSVersionBindReqTCP,20,"\0\x1e\0\x06\x81\x82\0\x01\0\0\0\0\0\0\x07ver
+SF:sion\x04bind\0\0\x10\0\x03");
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port36269-TCP:V=7.94SVN%I=7%D=4/9%Time=69D74602%P=x86_64-pc-linux-gnu%r
+SF:(DNSVersionBindReqTCP,20,"\0\x1e\0\x06\x81\x82\0\x01\0\0\0\0\0\0\x07ver
+SF:sion\x04bind\0\0\x10\0\x03");
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port43005-TCP:V=7.94SVN%I=7%D=4/9%Time=69D74602%P=x86_64-pc-linux-gnu%r
+SF:(DNSVersionBindReqTCP,20,"\0\x1e\0\x06\x81\x82\0\x01\0\0\0\0\0\0\x07ver
+SF:sion\x04bind\0\0\x10\0\x03");
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+# Nmap done at Thu Apr  9 06:24:37 2026 -- 1 IP address (1 host up) scanned in 78.31 seconds

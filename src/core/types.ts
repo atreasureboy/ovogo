@@ -107,6 +107,8 @@ export interface EngineConfig {
   planMode?: boolean
   /** Hook runner for PreToolCall / PostToolCall / UserPromptSubmit events */
   hookRunner?: IHookRunner
+  /** Session output directory — injected into sub-agent prompts */
+  sessionDir?: string
 }
 
 export interface TurnResult {

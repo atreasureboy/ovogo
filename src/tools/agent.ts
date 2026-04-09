@@ -1,14 +1,29 @@
 /**
- * AgentTool — spawn a specialized sub-agent to handle a focused subtask
+ * AgentTool — spawn a specialized sub-agent to handle a focused subtask.
+ *
+ * Red team agent types are mapped to purpose-built system prompts in
+ * src/prompts/agentPrompts.ts.  Multiple Agent calls in one LLM response
+ * execute in parallel (Agent is in CONCURRENCY_SAFE_TOOLS).
  */
 
 import type { Tool, ToolContext, ToolDefinition, ToolResult } from '../core/types.js'
 import type { EngineConfig } from '../core/types.js'
 import { getAgentTypeSystemPrompt } from '../prompts/system.js'
+import { getRedTeamAgentPrompt, type RedTeamAgentType } from '../prompts/agentPrompts.js'
 
-export type AgentType = 'general-purpose' | 'explore' | 'plan' | 'code-reviewer'
+// Generic legacy types (kept for backward-compat)
+type LegacyAgentType = 'general-purpose' | 'explore' | 'plan' | 'code-reviewer'
+
+type AgentType = RedTeamAgentType | LegacyAgentType
 
 const READ_ONLY_TYPES = new Set<AgentType>(['explore', 'plan', 'code-reviewer'])
+
+const RED_TEAM_TYPES = new Set<AgentType>([
+  'dns-recon', 'port-scan', 'web-probe',
+  'weapon-match', 'osint',
+  'web-vuln', 'service-vuln', 'auth-attack',
+  'poc-verify', 'report',
+])
 
 // Injected at startup — avoids circular imports
 let _engineFactory: ((config: EngineConfig, renderer: unknown) => { runTurn: (msg: string, history: never[]) => Promise<{ result: { output: string; reason: string } }> }) | null = null
@@ -25,6 +40,24 @@ export function registerAgentFactory(
   _currentRenderer = renderer
 }
 
+// Default max_iterations per agent type (agents are focused, need enough room)
+const DEFAULT_ITERATIONS: Record<string, number> = {
+  'dns-recon':    30,
+  'port-scan':    30,
+  'web-probe':    30,
+  'weapon-match': 20,
+  'osint':        20,
+  'web-vuln':     50,
+  'service-vuln': 40,
+  'auth-attack':  40,
+  'poc-verify':   20,
+  'report':       20,
+  'general-purpose': 30,
+  'explore':      20,
+  'plan':         15,
+  'code-reviewer':15,
+}
+
 export class AgentTool implements Tool {
   name = 'Agent'
 
@@ -32,42 +65,69 @@ export class AgentTool implements Tool {
     type: 'function',
     function: {
       name: 'Agent',
-      description: `Launch a specialized sub-agent to handle a focused subtask.
+      description: `启动专用 sub-agent 并行执行聚焦任务。多个 Agent 调用在同一响应中会同时执行（Promise.all）。
 
-Sub-agent types:
-- "general-purpose" (default): All tools available. Use for complex subtasks that need to read and write.
-- "explore": Read-only (Read, Glob, Grep, WebFetch, WebSearch). Fast codebase investigation without side effects.
-- "plan": Read-only + produces a numbered step-by-step plan. Use before making complex changes.
-- "code-reviewer": Read-only + code quality focus. Reports issues by severity without making changes.
+## 红队专用 Agent 类型（推荐）
 
-Use sub-agents when:
-- A subtask is self-contained and would clutter the main conversation
-- You need to investigate something without polluting the main context
-- A subtask requires many tool calls but produces a single final answer
+| 类型 | 职责 | 并行阶段 |
+|------|------|---------|
+| dns-recon | 子域名/DNS枚举（subfinder/dnsx/amass） | Phase 1 |
+| port-scan | 端口/服务扫描（nmap两步/masscan/naabu） | Phase 1 |
+| web-probe | Web资产探测（httpx/katana/gau/指纹） | Phase 1 |
+| weapon-match | 武器库匹配（WeaponRadar批量检索） | Phase 2 |
+| osint | OSINT情报收集（WebSearch/证书/GitHub） | Phase 2 |
+| web-vuln | Web漏洞扫描（nuclei HTTP/nikto/ffuf） | Phase 3 |
+| service-vuln | 服务层漏洞（nuclei网络层/nmap-vuln） | Phase 3 |
+| auth-attack | 认证攻击（hydra/kerbrute/默认凭证） | Phase 3 |
+| poc-verify | 验证具体漏洞PoC（每个高置信漏洞1个） | Phase 4 |
+| report | 生成最终渗透测试报告 | Phase 5 |
 
-The sub-agent gets a fresh conversation context with only the prompt you provide.
-It runs to completion and returns its output as a string.
+## 通用类型
+- general-purpose: 所有工具可用，复杂自定义任务
+- explore: 只读调查（Read/Glob/Grep）
+- plan: 分析+规划，不执行
+- code-reviewer: 代码安全审计
 
-IMPORTANT: Sub-agents cannot spawn further sub-agents.`,
+## 并行执行示例
+Phase 1 侦察（一次响应中同时调用3个）:
+  Agent(dns-recon, ...) + Agent(port-scan, ...) + Agent(web-probe, ...)
+  → 引擎用 Promise.all 同时运行，64核服务器完全支持
+
+## 关键规则
+- prompt 必须完全自包含（包含 target、session_dir、具体任务）
+- sub-agent 不能再调用 Agent（禁止递归）
+- 每个 agent 独立写文件到 session_dir，结束时返回摘要`,
       parameters: {
         type: 'object',
         properties: {
           description: {
             type: 'string',
-            description: 'Brief label for this sub-task (shown in UI, e.g. "Explore auth module")',
+            description: '子任务标签（显示在UI，如 "DNS侦察 zhhovo.top"）',
           },
           prompt: {
             type: 'string',
-            description: `Complete task prompt for the sub-agent. Must be fully self-contained — the sub-agent has NO access to the parent conversation. Include all context: file paths, current state, what to do, what to return.`,
+            description: `完整任务指令，必须自包含，包含：
+1. 目标（target URL/IP/域名）
+2. session_dir（输出目录绝对路径）
+3. 具体任务（做什么、输出什么文件）
+4. 上下文（前一阶段的关键发现，如开放端口、技术栈）
+
+Sub-agent 没有父对话的上下文，所有信息必须在 prompt 中提供。`,
           },
           subagent_type: {
             type: 'string',
-            enum: ['general-purpose', 'explore', 'plan', 'code-reviewer'],
-            description: 'Type of sub-agent (default: "general-purpose"). Use "explore" for read-only investigation, "plan" for planning, "code-reviewer" for code review.',
+            enum: [
+              'dns-recon', 'port-scan', 'web-probe',
+              'weapon-match', 'osint',
+              'web-vuln', 'service-vuln', 'auth-attack',
+              'poc-verify', 'report',
+              'general-purpose', 'explore', 'plan', 'code-reviewer',
+            ],
+            description: 'Agent 类型（默认 general-purpose）',
           },
           max_iterations: {
             type: 'number',
-            description: 'Max think-act cycles for the sub-agent (default: 15, max: 30)',
+            description: '最大执行轮数（每种类型有合理默认值，可覆盖，最大 100）',
           },
         },
         required: ['description', 'prompt'],
@@ -76,49 +136,65 @@ IMPORTANT: Sub-agents cannot spawn further sub-agents.`,
   }
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
-    const description = String(input.description ?? 'subtask')
-    const prompt = String(input.prompt ?? '')
-    const agentType = (String(input.subagent_type ?? 'general-purpose')) as AgentType
-    const maxIterations = typeof input.max_iterations === 'number'
-      ? Math.min(input.max_iterations, 30)
-      : 15
+    const description    = String(input.description ?? 'subtask')
+    const prompt         = String(input.prompt ?? '')
+    const agentType      = String(input.subagent_type ?? 'general-purpose') as AgentType
+    const defaultIter    = DEFAULT_ITERATIONS[agentType] ?? 30
+    const maxIterations  = typeof input.max_iterations === 'number'
+      ? Math.min(input.max_iterations, 100)
+      : defaultIter
 
     if (!prompt.trim()) {
-      return { content: 'Error: prompt is required and must not be empty', isError: true }
+      return { content: 'Error: prompt 不能为空', isError: true }
     }
 
-    const validTypes: AgentType[] = ['general-purpose', 'explore', 'plan', 'code-reviewer']
-    if (!validTypes.includes(agentType)) {
+    const allValidTypes: AgentType[] = [
+      'dns-recon', 'port-scan', 'web-probe',
+      'weapon-match', 'osint',
+      'web-vuln', 'service-vuln', 'auth-attack',
+      'poc-verify', 'report',
+      'general-purpose', 'explore', 'plan', 'code-reviewer',
+    ]
+    if (!allValidTypes.includes(agentType)) {
       return {
-        content: `Error: unknown subagent_type "${agentType}". Use one of: ${validTypes.join(', ')}`,
+        content: `Error: 未知 subagent_type "${agentType}"。可用类型：${allValidTypes.join(', ')}`,
         isError: true,
       }
     }
 
     if (!_engineFactory || !_currentConfig || !_currentRenderer) {
       return {
-        content: 'Error: AgentTool not initialized. Call registerAgentFactory first.',
+        content: 'Error: AgentTool 未初始化，请先调用 registerAgentFactory。',
         isError: true,
       }
     }
 
     const renderer = _currentRenderer as {
       agentStart: (desc: string, type: string) => void
-      agentDone: (desc: string, success: boolean) => void
+      agentDone:  (desc: string, success: boolean) => void
     }
     renderer.agentStart(description, agentType)
 
-    // Build child config based on agent type
+    // Build specialized system prompt
+    let systemPrompt: string
+    if (RED_TEAM_TYPES.has(agentType)) {
+      const basePrompt = getRedTeamAgentPrompt(agentType as RedTeamAgentType, context.cwd)
+      // Inject session dir from config if available
+      const sessionDir = _currentConfig.sessionDir
+      systemPrompt = sessionDir
+        ? basePrompt + `\n\n当前 Session 目录: ${sessionDir}`
+        : basePrompt
+    } else {
+      systemPrompt = getAgentTypeSystemPrompt(agentType as LegacyAgentType, context.cwd)
+    }
+
     const childConfig: EngineConfig = {
       ..._currentConfig,
       maxIterations,
       cwd: context.cwd,
-      // No hooks in sub-agents (avoid recursive hook execution)
       hookRunner: undefined,
-      // Read-only types get planMode=true (engine filters write tools)
       planMode: READ_ONLY_TYPES.has(agentType),
-      // Type-specific system prompt
-      systemPrompt: getAgentTypeSystemPrompt(agentType, context.cwd),
+      systemPrompt,
     }
 
     const childEngine = _engineFactory(childConfig, _currentRenderer)
@@ -129,19 +205,19 @@ IMPORTANT: Sub-agents cannot spawn further sub-agents.`,
 
       if (!result.output) {
         return {
-          content: `Sub-agent "${description}" (${agentType}) completed (${result.reason}) but produced no text output.`,
+          content: `[${agentType}] "${description}" 完成（${result.reason}），无文本输出。`,
           isError: false,
         }
       }
 
       return {
-        content: `Sub-agent "${description}" (${agentType}) result:\n\n${result.output}`,
+        content: `[${agentType}] "${description}":\n\n${result.output}`,
         isError: false,
       }
     } catch (err: unknown) {
       renderer.agentDone(description, false)
       return {
-        content: `Sub-agent "${description}" failed: ${(err as Error).message}`,
+        content: `[${agentType}] "${description}" 异常: ${(err as Error).message}`,
         isError: true,
       }
     }

@@ -31,7 +31,7 @@ description: ffuf — Web 模糊测试与目录枚举工具
 | `-v` | 详细输出（显示完整 URL） |
 | `-o <file>` | 输出到文件 |
 | `-of <format>` | 输出格式（`json`/`ejson`/`html`/`md`/`csv`/`all`） |
-| `-t <num>` | 并发线程数（默认 40） |
+| `-t <num>` | 并发线程数（默认 40，64核推荐 **200**） |
 | `-p <delay>` | 请求间隔（秒，支持范围 `0.1-2.0`） |
 | `-rate <num>` | 每秒请求速率限制 |
 | `-timeout <sec>` | 请求超时秒数 |
@@ -60,11 +60,11 @@ description: ffuf — Web 模糊测试与目录枚举工具
 
 ## 典型使用场景
 
-### 1. 基础目录枚举
+### 1. 基础目录枚举（高并发）
 ```bash
-ffuf -u https://target.com/FUZZ \
+/root/go/bin/ffuf -u https://target.com/FUZZ \
      -w /opt/wordlists/seclists/Discovery/Web-Content/common.txt \
-     -c -v
+     -t 200 -c -v
 ```
 
 ### 2. 带扩展名的文件枚举

@@ -4,6 +4,8 @@
  * 调用 /data/poc_db/weapon_radar_query.py，对公司 22W Nuclei PoC 数据库
  * 进行自然语言向量检索（BGE-M3 + pgvector），返回最匹配的漏洞武器。
  *
+ * 支持批量查询：queries[] 参数可传入多个查询，模型只加载一次（避免 2×60s 开销）。
+ *
  * 注意：首次调用需加载 BGE-M3 模型，约 30-60 秒；后续调用因 OS 缓存
  * 会快很多。超时设为 180s 以覆盖最慢情况。
  */
@@ -15,13 +17,17 @@ const RADAR_SCRIPT = '/data/poc_db/weapon_radar_query.py'
 const TIMEOUT_MS   = 180_000   // 3 分钟：首次加载 BGE-M3 可能需要 60s+
 
 interface RadarResult {
-  rank:         number
-  id:           number
-  module_name:  string
-  attack_logic: string
-  score:        number
-  score_pct:    number
-  poc_code?:    string
+  rank:             number
+  id:               number
+  module_name:      string
+  attack_logic:     string
+  opsec_risk?:      number
+  cve_list?:        string[]
+  required_options?: Record<string, string>
+  auto_parameters?: Record<string, string>
+  score:            number
+  score_pct:        number
+  poc_code?:        string
 }
 
 interface RadarOutput {
@@ -33,7 +39,11 @@ interface RadarOutput {
   error?:    string
 }
 
-function formatResults(output: RadarOutput): string {
+interface BatchOutput {
+  batch: (RadarOutput & { error?: string })[]
+}
+
+function formatSingleResult(output: RadarOutput): string {
   const lines: string[] = [
     `武器库检索 — 查询: "${output.query}"`,
     `返回 ${output.total} 条 | 编码 ${output.encode_ms}ms | 检索 ${output.search_ms}ms`,
@@ -42,20 +52,49 @@ function formatResults(output: RadarOutput): string {
 
   for (const r of output.results) {
     const scoreBar = r.score_pct >= 80 ? '★★★' : r.score_pct >= 60 ? '★★☆' : '★☆☆'
-    lines.push(`#${r.rank}  [${r.score_pct}%] ${scoreBar}  ${r.module_name}  (ID: ${r.id})`)
+    const riskStr  = r.opsec_risk !== undefined ? ` | 噪音风险:${r.opsec_risk}/5` : ''
+    lines.push(`#${r.rank}  [${r.score_pct}%] ${scoreBar}  ${r.module_name}  (ID: ${r.id})${riskStr}`)
+
+    if (r.cve_list && r.cve_list.length > 0) {
+      lines.push(`    CVE: ${r.cve_list.join(', ')}`)
+    }
     if (r.attack_logic) {
       lines.push(`    攻击逻辑: ${r.attack_logic}`)
     }
+    if (r.auto_parameters && Object.keys(r.auto_parameters).length > 0) {
+      lines.push(`    参数说明: ${JSON.stringify(r.auto_parameters)}`)
+    }
+
+    // PoC 代码 + 可执行命令
     if (r.poc_code) {
-      const preview = r.poc_code.length > 1200
-        ? r.poc_code.slice(0, 1200) + '\n... (已截断)'
-        : r.poc_code
-      lines.push(`    PoC 代码:\n${preview.split('\n').map(l => '    ' + l).join('\n')}`)
+      // 写到临时文件的建议路径
+      const safeName = r.module_name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60)
+      const tmpPath = `/tmp/poc_${safeName}.yaml`
+      lines.push(`    ▶ 执行方式:`)
+      lines.push(`      cat > ${tmpPath} << 'NUCLEI_EOF'`)
+      lines.push(r.poc_code)
+      lines.push(`NUCLEI_EOF`)
+      lines.push(`      /root/go/bin/nuclei -u TARGET -t ${tmpPath} -silent`)
+      if (r.cve_list && r.cve_list.length > 0) {
+        lines.push(`      # 或用 -id: /root/go/bin/nuclei -u TARGET -id ${r.cve_list[0]}`)
+      }
     }
     lines.push('')
   }
 
   return lines.join('\n').trimEnd()
+}
+
+function formatBatchResults(batch: BatchOutput): string {
+  return batch.batch.map((output, i) => {
+    if (output.error) {
+      return `[${i + 1}] 查询 "${output.query}" 失败: ${output.error}`
+    }
+    if (!output.results || output.results.length === 0) {
+      return `[${i + 1}] 查询 "${output.query}": 未找到匹配 PoC`
+    }
+    return formatSingleResult(output)
+  }).join('\n\n' + '═'.repeat(72) + '\n\n')
 }
 
 export class WeaponRadarTool implements Tool {
@@ -73,46 +112,73 @@ export class WeaponRadarTool implements Tool {
 - 服务+版本："Shiro 反序列化"、"Tomcat 文件上传"
 - 已发现的服务："目标跑了 Jenkins 2.3，找 RCE"
 
-⚠️ 首次调用需加载语义模型（约 30-60 秒），请耐心等待。`,
+返回结果包含：攻击逻辑分析、完整可执行 PoC YAML、nuclei 执行命令（可直接复制运行）。
+
+⚠️ 首次调用需加载语义模型（约 30-60 秒），请耐心等待。
+
+批量查询优化：如需同时检索多个目标/漏洞，使用 queries[] 参数，模型只加载一次，比多次调用快 3-5 倍。`,
       parameters: {
         type: 'object',
         properties: {
           query: {
             type: 'string',
-            description: '自然语言攻击意图描述，支持中英文。例如："Apache Struts2 RCE"、"Shiro 反序列化认证绕过"、"WordPress 文件上传 getshell"',
+            description: '单个查询：自然语言攻击意图描述，支持中英文。例如："Apache Struts2 RCE"、"Shiro 反序列化认证绕过"',
+          },
+          queries: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '批量查询（推荐）：多个查询组成的数组，模型只加载一次。例如：["Apache Log4j RCE", "WordPress 文件上传", "Spring Boot Actuator"]',
           },
           top_k: {
             type: 'number',
-            description: '返回结果数量，默认 3，最多 10。发现目标服务时建议用 5，针对性查找用 3。',
+            description: '每个查询返回结果数量，默认 3，最多 10。发现目标服务时建议用 5，针对性查找用 3。',
           },
-          show_code: {
+          hide_code: {
             type: 'boolean',
-            description: '是否返回完整 PoC YAML 代码。准备直接利用时设 true，快速筛选时设 false（默认）。',
+            description: '设为 true 时不返回 PoC YAML 代码（默认 false，即默认返回完整可执行 PoC）。',
           },
         },
-        required: ['query'],
+        required: [],
       },
     },
   }
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
     const query     = input.query as string | undefined
+    const queries   = input.queries as string[] | undefined
     const topK      = Math.min(Math.max(Number(input.top_k ?? 3), 1), 10)
-    const showCode  = Boolean(input.show_code ?? false)
+    const hideCode  = Boolean(input.hide_code ?? false)
 
-    if (!query || !query.trim()) {
-      return { content: 'Error: query 不能为空', isError: true }
+    // 批量模式：queries[] 优先
+    if (queries && queries.length > 0) {
+      const batchItems = queries.map(q => ({ query: q.trim(), top_k: topK }))
+      const batchJson = JSON.stringify(batchItems).replace(/'/g, "'\\''")
+      const cmd = [
+        `python3 ${RADAR_SCRIPT}`,
+        `--batch-json '${batchJson}'`,
+        hideCode ? '--no-code' : '',
+      ].filter(Boolean).join(' ')
+
+      return this._runCmd(cmd, context, `批量(${queries.length}个查询)`)
     }
 
-    // 构造命令，shell 转义 query
+    // 单查询模式
+    if (!query || !query.trim()) {
+      return { content: 'Error: 必须提供 query 或 queries 参数', isError: true }
+    }
+
     const escapedQuery = query.replace(/'/g, "'\\''")
     const cmd = [
       `python3 ${RADAR_SCRIPT}`,
       `-q '${escapedQuery}'`,
       `-n ${topK}`,
-      showCode ? '--show-code' : '',
+      hideCode ? '--no-code' : '',
     ].filter(Boolean).join(' ')
 
+    return this._runCmd(cmd, context, query)
+  }
+
+  private _runCmd(cmd: string, context: ToolContext, label: string): Promise<ToolResult> {
     return new Promise<ToolResult>((resolve) => {
       let settled = false
 
@@ -137,7 +203,6 @@ export class WeaponRadarTool implements Tool {
             resolve({ content: `WeaponRadar: 超时（>${TIMEOUT_MS / 1000}s），模型加载过慢或数据库无响应`, isError: true })
             return
           }
-          // 非超时错误：尝试解析 JSON（脚本可能输出了 {"error": "..."}）
           const raw = stdout.trim() || stderr.trim()
           try {
             const parsed = JSON.parse(raw) as RadarOutput
@@ -155,26 +220,32 @@ export class WeaponRadarTool implements Tool {
 
         // 成功 — 解析 JSON 并格式化
         const raw = stdout.trim()
-        let parsed: RadarOutput
+        let parsed: RadarOutput | BatchOutput
         try {
-          parsed = JSON.parse(raw) as RadarOutput
+          parsed = JSON.parse(raw) as RadarOutput | BatchOutput
         } catch {
-          // 解析失败，直接返回原始输出（可能含 rich 格式）
           resolve({ content: raw || '(无输出)', isError: false })
           return
         }
 
-        if (parsed.error) {
-          resolve({ content: `WeaponRadar 错误: ${parsed.error}`, isError: true })
+        // 批量模式响应
+        if ('batch' in parsed) {
+          resolve({ content: formatBatchResults(parsed as BatchOutput), isError: false })
           return
         }
 
-        if (!parsed.results || parsed.results.length === 0) {
-          resolve({ content: `武器库中未找到匹配 "${query}" 的 PoC，尝试换用不同关键词。`, isError: false })
+        const single = parsed as RadarOutput
+        if (single.error) {
+          resolve({ content: `WeaponRadar 错误: ${single.error}`, isError: true })
           return
         }
 
-        resolve({ content: formatResults(parsed), isError: false })
+        if (!single.results || single.results.length === 0) {
+          resolve({ content: `武器库中未找到匹配 "${label}" 的 PoC，尝试换用不同关键词。`, isError: false })
+          return
+        }
+
+        resolve({ content: formatSingleResult(single), isError: false })
       })
 
       const onAbort = () => {

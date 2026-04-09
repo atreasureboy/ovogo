@@ -609,6 +609,7 @@ async function main(): Promise<void> {
     extraTools: mcpTools,
     hookRunner,
     systemPrompt,
+    sessionDir,   // injected into sub-agent prompts via registerAgentFactory
   }
 
   // Plan-mode config: same system prompt + planMode=true (engine filters write tools)

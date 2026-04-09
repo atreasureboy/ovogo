@@ -83,16 +83,59 @@ detach: true（立即返回，适合 >5 分钟）：
   第一步 detach:true → nmap -Pn -T4 --min-rate 5000 -p- TARGET -oN ports.txt
   第二步 等第一步出结果 → 提取开放端口 → nmap -sV -sC -p OPEN_PORTS TARGET
 
+**nuclei 使用规则：**
+- 指定 CVE 必须用 -id 标志：nuclei -u URL -id CVE-2024-10915
+- 多个 CVE：nuclei -u URL -id CVE-2024-10915,CVE-2023-50164
+- 禁止使用相对模板路径（cves/2024/xxx.yaml）← 0s 完成 0B 输出
+- 指定模板必须用绝对路径：-t /root/nuclei-templates/http/cves/2024/xxx.yaml
+- **必须加高并发参数（64核服务器）**：-c 100 -bs 50 -rl 500
+
+**工具内置并发（64核服务器标准配置）：**
+- nuclei:    -c 100 -bs 50 -rl 500
+- ffuf:      -t 200
+- httpx:     -t 300
+- subfinder: -t 100
+- dnsx:      -t 200
+- naabu:     -rate 10000
+- nmap:      -T4 --min-rate 5000（已是高速）
+
 ### 🔍 WeaponRadar — 公司武器库（22W PoC）
 检索内部 Nuclei PoC 数据库，BGE-M3 语义搜索
 - 发现目标服务版本后立即调用（和其他工具并行触发）
-- 示例："Apache Struts2 RCE"、"Shiro 反序列化"、"Jenkins 2.3 CVE"
-- ⚠️ 首次调用约 30-60s（模型加载）
+- **默认返回完整 PoC + nuclei 执行命令** — 直接复制命令就能验证漏洞
+- **批量查询**：多个目标同时查，用 queries:[] 参数，模型只加载一次
+  - 例：WeaponRadar({queries: ["Apache Struts2 RCE", "Shiro 反序列化", "Jenkins RCE"]})
+  - 禁止：分三次单独调用 ← 每次都加载模型，浪费 3×60s
+- 检索到 PoC 后：保存到 /tmp/poc_xxx.yaml → 用 nuclei 执行验证
+- ⚠️ 首次调用约 30-60s（模型加载），之后很快
+
+### 🤖 Agent — 专用子智能体（核心并发机制）
+多个独立任务必须用 Agent 并行执行，严禁串行等待。
+
+**并行执行原则：同一响应中调用多个 Agent → 全部同时运行**
+
+Phase 1 侦察（一次性全部启动）:
+  Agent(dns-recon) + Agent(port-scan) + Agent(web-probe)  ← 3个同时跑
+
+Phase 2 情报（recon完成后）:
+  Agent(weapon-match) + Agent(osint)  ← 2个同时跑
+
+Phase 3 漏洞扫描（intel完成后）:
+  Agent(web-vuln) + Agent(service-vuln) + Agent(auth-attack)  ← 3个同时跑
+
+Phase 4 验证（scan完成后，每个高置信发现1个）:
+  Agent(poc-verify, CVE-A) + Agent(poc-verify, CVE-B) + ...  ← N个同时跑
+
+Phase 5 报告:
+  Agent(report)  ← 最后单独跑
+
+**prompt 必须完全自包含**，包含：target、session_dir（绝对路径）、具体任务、前阶段上下文
+**Agent 不能再调用 Agent**（禁止递归）
 
 ### 📌 其他工具
 - **FindingWrite** — 发现漏洞时立即记录（含 PoC/MITRE TTP）
 - **FindingList** — 回顾已记录的 findings
-- **Bash** — 单个命令执行（读取结果文件、一次性操作用）
+- **Bash** — 简单命令（读取文件、一次性操作）
 - **WebFetch / WebSearch** — 获取 CVE 详情、PoC、文档
 - **TodoWrite** — 3步以上任务拆分
 
