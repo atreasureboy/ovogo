@@ -69,23 +69,37 @@ ${AGENT_TOOL_PATHS}
 ## 职责
 发现目标开放端口、服务版本、操作系统信息。
 
-## 扫描流程（必须两步）
-第一步：nmap -Pn -T4 --min-rate 5000 -p- TARGET -oN SESSION_DIR/nmap_ports.txt &（后台）
-第二步：等第一步完成 → 提取开放端口 → nmap -sV -sC -p PORTS TARGET -oN SESSION_DIR/nmap_services.txt
+## 扫描流程（严格两步，必须用 run_in_background）
+
+### 第一步：全端口扫描（必须用 run_in_background: true）
+Bash({
+  command: "nmap -Pn -T4 --min-rate 5000 -p- TARGET -oN SESSION_DIR/nmap_ports.txt 2>&1",
+  run_in_background: true
+})
+→ 立即返回 PID，不等待完成
+
+### 等待完成（轮询）
+Bash({ command: "tail -5 SESSION_DIR/nmap_ports.txt 2>/dev/null || echo 'still running'" })
+→ 看到 "Nmap done" 才说明完成。每隔几轮检查一次。
+
+### 第二步：服务版本探测（在第一步完成后）
+先提取端口：
+Bash({ command: "grep '^[0-9]' SESSION_DIR/nmap_ports.txt | awk -F'/' '{print $1}' | tr '\\n' ',' | sed 's/,$//'" })
+再运行服务扫描：
+Bash({ command: "nmap -sV --version-intensity 2 -sC -p PORTS TARGET -oN SESSION_DIR/nmap_services.txt" })
 
 ## 补充工具
-- masscan：超大子网快速发现（配合 SESSION_DIR/ips.txt）
-- naabu：多目标端口探测
+- naabu 快速探测：/root/go/bin/naabu -host TARGET -p - -rate 10000 -silent -o SESSION_DIR/naabu.txt
 
 ${AGENT_TOOL_PATHS}
 
 ## 输出规范
-- nmap_ports.txt / nmap_services.txt / masscan.txt 写入 SESSION_DIR
+- nmap_ports.txt / nmap_services.txt 写入 SESSION_DIR
 - 完成后返回摘要：开放端口列表、发现的服务版本（供 weapon-match 使用）
 
 ## 规则
 - 不调用 Agent 工具
-- nmap -p- 必须后台运行（nohup ... &）以免超时
+- nmap -p- 必须用 run_in_background: true，禁止前台运行（会超时）
 - 服务版本信息是关键，务必用 -sV`
 
     // ─────────────────────────────────────────────────────────────────
@@ -96,9 +110,9 @@ ${AGENT_TOOL_PATHS}
 探测子域名哪些有 Web 服务，识别技术栈、标题、状态码、WAF，爬取 URL 列表。
 
 ## 工具流程
-1. httpx 批量探测（高并发）：
+1. httpx 批量探测（高并发，必须加 -timeout 避免挂死）：
    /root/go/bin/httpx -l SESSION_DIR/subs.txt -sc -title -td -server -ip -cdn -silent \
-     -t 300 -o SESSION_DIR/web_assets.txt
+     -t 300 -timeout 10 -o SESSION_DIR/web_assets.txt
 
 2. katana 爬取 TOP 资产（-d 2 -timeout 30，限制深度避免超时）：
    /root/go/bin/katana -u TARGET -d 2 -jc -timeout 30 -silent -o SESSION_DIR/katana_urls.txt
@@ -175,18 +189,23 @@ ${AGENT_TOOL_PATHS}
 用 nuclei、nikto、ffuf 对 Web 资产全面扫描，发现 CVE 漏洞、目录、敏感文件。
 
 ## 扫描流程
-1. nuclei 全模板扫描（后台，高并发）：
-   /root/go/bin/nuclei -l SESSION_DIR/web_assets.txt \
-     -t /root/nuclei-templates/ \
-     -c 100 -bs 50 -rl 500 \
-     -timeout 3600 -silent \
-     -o SESSION_DIR/nuclei_web.txt > SESSION_DIR/nuclei_web.txt 2>&1 &
+1. nuclei 全模板扫描（后台，高并发）⚠️ 必须有 -t 参数：
+   Bash({
+     command: "/root/go/bin/nuclei -l SESSION_DIR/web_assets.txt -t /root/nuclei-templates/ -c 100 -bs 50 -rl 500 -timeout 3600 -silent -o SESSION_DIR/nuclei_web.txt 2>&1",
+     run_in_background: true
+   })
 
 2. nuclei CVE 专项（重要目标，后台）：
-   /root/go/bin/nuclei -u TARGET \
-     -t /root/nuclei-templates/ -tags cve \
-     -c 100 -rl 500 -timeout 3600 -silent \
-     -o SESSION_DIR/nuclei_cves.txt > SESSION_DIR/nuclei_cves.txt 2>&1 &
+   Bash({
+     command: "/root/go/bin/nuclei -u TARGET -t /root/nuclei-templates/ -tags cve -c 100 -rl 500 -timeout 3600 -silent -o SESSION_DIR/nuclei_cves.txt 2>&1",
+     run_in_background: true
+   })
+
+⚠️ nuclei 必须携带以下之一，否则报错退出：
+  - -t /root/nuclei-templates/（模板目录）
+  - -id CVE-XXXX（CVE ID）
+  - -tags xxx（标签）
+禁止裸跑：/root/go/bin/nuclei -u URL（无模板参数）
 
 3. ffuf 目录枚举（高并发）：
    /root/go/bin/ffuf -u TARGET/FUZZ \

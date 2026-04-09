@@ -68,9 +68,9 @@ PD_HTTPX=/root/go/bin/httpx   # 或检测到的路径
 # 单目标探测
 echo "https://TARGET" | $PD_HTTPX -sc -title -td -server -silent
 
-# 多目标批量（从文件，高并发）
+# 多目标批量（从文件，高并发，-timeout 防止挂死）
 $PD_HTTPX -l /SESSION/subs.txt -sc -title -td -server -ip -cdn -silent \
-    -t 300 -o /SESSION/httpx_results.txt
+    -t 300 -timeout 10 -o /SESSION/httpx_results.txt
 
 # 管道方式（与 subfinder 配合）
 subfinder -d TARGET -silent | $PD_HTTPX -sc -title -td -server -ip -silent \

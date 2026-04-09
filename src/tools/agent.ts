@@ -42,20 +42,20 @@ export function registerAgentFactory(
 
 // Default max_iterations per agent type (agents are focused, need enough room)
 const DEFAULT_ITERATIONS: Record<string, number> = {
-  'dns-recon':    30,
-  'port-scan':    30,
-  'web-probe':    30,
-  'weapon-match': 20,
-  'osint':        20,
-  'web-vuln':     50,
-  'service-vuln': 40,
-  'auth-attack':  40,
-  'poc-verify':   20,
-  'report':       20,
-  'general-purpose': 30,
-  'explore':      20,
-  'plan':         15,
-  'code-reviewer':15,
+  'dns-recon':       80,   // subfinder + dnsx + amass + 解析等待
+  'port-scan':       80,   // nmap两步 + masscan + 结果读取
+  'web-probe':       80,   // httpx + katana + gau + 多目标
+  'weapon-match':    60,   // WeaponRadar + 读文件 + 保存PoC
+  'osint':           60,   // 多轮WebSearch + WebFetch
+  'web-vuln':       120,   // nuclei全量 + ffuf + nikto (多目标)
+  'service-vuln':   100,   // nuclei网络层 + nmap脚本 + enum4linux
+  'auth-attack':    100,   // hydra多服务 + kerbrute + 凭证整理
+  'poc-verify':      60,   // 每个PoC验证 + 证据保存
+  'report':          60,   // FindingList + 读文件 + 写报告
+  'general-purpose': 60,
+  'explore':         40,
+  'plan':            30,
+  'code-reviewer':   30,
 }
 
 export class AgentTool implements Tool {
@@ -141,7 +141,7 @@ Sub-agent 没有父对话的上下文，所有信息必须在 prompt 中提供�
     const agentType      = String(input.subagent_type ?? 'general-purpose') as AgentType
     const defaultIter    = DEFAULT_ITERATIONS[agentType] ?? 30
     const maxIterations  = typeof input.max_iterations === 'number'
-      ? Math.min(input.max_iterations, 100)
+      ? Math.min(input.max_iterations, 200)
       : defaultIter
 
     if (!prompt.trim()) {

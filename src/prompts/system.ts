@@ -80,8 +80,9 @@ detach: true（立即返回，适合 >5 分钟）：
   → 返回 PID 和输出文件，之后用 tail -20 output_file 查进度
 
 **nmap 必须分两步（绝不能一步 -sV -sC -p-）：**
-  第一步 detach:true → nmap -Pn -T4 --min-rate 5000 -p- TARGET -oN ports.txt
-  第二步 等第一步出结果 → 提取开放端口 → nmap -sV -sC -p OPEN_PORTS TARGET
+  第一步 Bash(run_in_background:true) → nmap -Pn -T4 --min-rate 5000 -p- TARGET -oN ports.txt
+         ↑ 必须 run_in_background:true，否则会超时 30 分钟
+  第二步 轮询 tail -5 ports.txt 直到出现 "Nmap done" → 提取端口 → nmap -sV -sC -p PORTS TARGET
 
 **nuclei 使用规则：**
 - 指定 CVE 必须用 -id 标志：nuclei -u URL -id CVE-2024-10915
