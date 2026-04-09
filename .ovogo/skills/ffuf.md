@@ -15,7 +15,7 @@ description: ffuf — Web 模糊测试与目录枚举工具
 
 | 项目 | 内容 |
 |------|------|
-| 二进制路径 | `/root/go/bin/ffuf` |
+| 二进制路径 | `ffuf` |
 | 适用场景 | 目录枚举、文件发现、参数 Fuzz、子域名枚举、虚拟主机发现 |
 | 字典目录 | `/opt/wordlists/seclists/` |
 
@@ -62,7 +62,7 @@ description: ffuf — Web 模糊测试与目录枚举工具
 
 ### 1. 基础目录枚举（高并发）
 ```bash
-/root/go/bin/ffuf -u https://target.com/FUZZ \
+ffuf -u https://target.com/FUZZ \
      -w /opt/wordlists/seclists/Discovery/Web-Content/common.txt \
      -t 200 -c -v
 ```

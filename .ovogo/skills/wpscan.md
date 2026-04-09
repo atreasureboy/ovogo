@@ -194,13 +194,13 @@ wpscan --url https://target.com --enumerate p,u -f json -o wp_info.json
 
 # 第二步：nuclei 漏洞扫描
 nuclei -u https://target.com \
-       -t /root/nuclei-templates/http/technologies/wordpress/ \
-       -t /root/nuclei-templates/http/vulnerabilities/wordpress/ \
+       -t ~/nuclei-templates/http/technologies/wordpress/ \
+       -t ~/nuclei-templates/http/vulnerabilities/wordpress/ \
        -silent
 
 # 第三步：全量 nuclei 扫描（不过滤）
 nuclei -u https://target.com \
-       -t /root/nuclei-templates/ \
+       -t ~/nuclei-templates/ \
        -silent -timeout 3600 -o wp_vulns.txt
 ```
 

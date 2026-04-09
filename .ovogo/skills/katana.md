@@ -15,7 +15,7 @@ description: katana — 智能 Web 爬虫
 
 | 项目 | 内容 |
 |------|------|
-| 二进制路径 | `/root/go/bin/katana` |
+| 二进制路径 | `katana` |
 | 项目来源 | ProjectDiscovery |
 | 适用场景 | Web 目录爬取、URL 发现、参数收集、JS 文件分析 |
 
@@ -59,56 +59,56 @@ description: katana — 智能 Web 爬虫
 
 ```bash
 # ✅ 标准爬取：深度 2，超时 30s，避免卡死
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent -o /SESSION/katana_urls.txt
+katana -u https://target.com -d 2 -timeout 30 -silent -o /SESSION/katana_urls.txt
 
 # 带 JS 解析（发现更多 API 端点，稍慢）
-/root/go/bin/katana -u https://target.com -d 2 -jc -timeout 30 -silent -o /SESSION/katana_js.txt
+katana -u https://target.com -d 2 -jc -timeout 30 -silent -o /SESSION/katana_js.txt
 ```
 
 ### 2. 多目标批量爬取
 
 ```bash
-/root/go/bin/katana -list /SESSION/live_urls.txt -d 2 -timeout 30 -silent -o /SESSION/katana_all.txt
+katana -list /SESSION/live_urls.txt -d 2 -timeout 30 -silent -o /SESSION/katana_all.txt
 ```
 
 ### 3. 无头浏览器模式（处理 SPA 应用）
 
 ```bash
-/root/go/bin/katana -u https://target.com -headless -d 2 -timeout 60 -silent -o /SESSION/katana_spa.txt
+katana -u https://target.com -headless -d 2 -timeout 60 -silent -o /SESSION/katana_spa.txt
 ```
 
 ### 4. 收集所有 JS 文件
 
 ```bash
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -em js -silent -o /SESSION/katana_js_files.txt
+katana -u https://target.com -d 2 -timeout 30 -em js -silent -o /SESSION/katana_js_files.txt
 ```
 
 ### 5. 收集带参数的 URL（用于漏洞测试）
 
 ```bash
-/root/go/bin/katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
+katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
   grep '?' | sort -u > /SESSION/katana_params.txt
 ```
 
 ### 6. 联动 gf 过滤感兴趣的 URL
 
 ```bash
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | gf xss
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | gf sqli
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | gf redirect
+katana -u https://target.com -d 2 -timeout 30 -silent | gf xss
+katana -u https://target.com -d 2 -timeout 30 -silent | gf sqli
+katana -u https://target.com -d 2 -timeout 30 -silent | gf redirect
 ```
 
 ### 7. 联动 dalfox 进行 XSS 扫描
 
 ```bash
-/root/go/bin/katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
+katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
   grep '=' | dalfox pipe -o /SESSION/xss_results.txt
 ```
 
 ### 8. 联动 sqlmap 进行 SQL 注入测试
 
 ```bash
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | \
+katana -u https://target.com -d 2 -timeout 30 -silent | \
   grep '=' | head -20 | \
   while read url; do
     sqlmap -u "$url" --batch --level 2 --quiet
@@ -118,14 +118,14 @@ description: katana — 智能 Web 爬虫
 ### 9. 只输出路径 / API 端点
 
 ```bash
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent -field path | sort -u
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -xhr -silent | grep 'api/'
+katana -u https://target.com -d 2 -timeout 30 -silent -field path | sort -u
+katana -u https://target.com -d 2 -timeout 30 -xhr -silent | grep 'api/'
 ```
 
 ### 10. 使用 Cookie 进行认证后爬取
 
 ```bash
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 \
+katana -u https://target.com -d 2 -timeout 30 \
     -H "Cookie: session=YOUR_SESSION_TOKEN" \
     -jc -silent -o /SESSION/katana_auth.txt
 ```
@@ -136,18 +136,18 @@ description: katana — 智能 Web 爬虫
 
 ```bash
 # 提取所有唯一域名
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | \
+katana -u https://target.com -d 2 -timeout 30 -silent | \
   awk -F/ '{print $1"//"$3}' | sort -u
 
 # 提取所有带参数 URL
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | grep -E '\?[^=]+=.'
+katana -u https://target.com -d 2 -timeout 30 -silent | grep -E '\?[^=]+=.'
 
 # 过滤静态资源（图片/CSS等）
-/root/go/bin/katana -u https://target.com -d 2 -timeout 30 -silent | \
+katana -u https://target.com -d 2 -timeout 30 -silent | \
   grep -vE '\.(png|jpg|gif|css|ico|svg|woff|ttf)$'
 
 # 提取所有 API 端点
-/root/go/bin/katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
+katana -u https://target.com -d 2 -jc -timeout 30 -silent | \
   grep -E '/api/|/v[0-9]+/'
 ```
 

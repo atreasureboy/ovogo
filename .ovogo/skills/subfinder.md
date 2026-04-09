@@ -15,7 +15,7 @@ description: subfinder — 子域名枚举工具
 
 | 项目 | 内容 |
 |------|------|
-| 二进制路径 | `/root/go/bin/subfinder` |
+| 二进制路径 | `subfinder` |
 | 项目来源 | ProjectDiscovery |
 | 适用场景 | 子域名发现、资产测绘、信息收集阶段 |
 
@@ -45,7 +45,7 @@ description: subfinder — 子域名枚举工具
 
 ### 1. 基础单域名枚举（高并发）
 ```bash
-/root/go/bin/subfinder -d target.com -t 100 -silent -o /SESSION/subs.txt
+subfinder -d target.com -t 100 -silent -o /SESSION/subs.txt
 ```
 
 ### 2. 显示来源数据
@@ -89,7 +89,7 @@ subfinder -d target.com -silent | \
 ```bash
 subfinder -d target.com -silent | \
   httpx -silent | \
-  nuclei -t /root/nuclei-templates/ -silent -o vulns.txt
+  nuclei -t ~/nuclei-templates/ -silent -o vulns.txt
 ```
 
 ---

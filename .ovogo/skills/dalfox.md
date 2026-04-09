@@ -15,7 +15,7 @@ description: dalfox — XSS 漏洞扫描工具
 
 | 项目 | 内容 |
 |------|------|
-| 二进制路径 | `/root/go/bin/dalfox` |
+| 二进制路径 | dalfox |
 | 适用场景 | XSS 漏洞自动化检测、Payload 生成、DOM XSS 测试 |
 
 ---

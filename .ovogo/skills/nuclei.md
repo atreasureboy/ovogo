@@ -15,8 +15,8 @@ description: nuclei — 模板化漏洞扫描引擎
 
 | 项目 | 内容 |
 |------|------|
-| 二进制路径 | `/root/go/bin/nuclei` |
-| 模板目录 | `/root/nuclei-templates/` |
+| 二进制路径 | `nuclei` |
+| 模板目录 | `~/nuclei-templates/` |
 | 项目来源 | ProjectDiscovery |
 | 适用场景 | 漏洞扫描、CVE 检测、安全合规检查、指纹识别 |
 
@@ -26,16 +26,16 @@ description: nuclei — 模板化漏洞扫描引擎
 
 ```bash
 # 单目标全量扫描（高性能）
-NUCLEI=/root/go/bin/nuclei
+NUCLEI=nuclei
 $NUCLEI -u TARGET \
-  -t /root/nuclei-templates/ \
+  -t ~/nuclei-templates/ \
   -c 100 -bs 25 -rl 500 \
   -timeout 3600 -silent \
   -o SESSION/nuclei_full.txt
 
 # 多目标批量扫描（高性能）
 $NUCLEI -l SESSION/web_assets.txt \
-  -t /root/nuclei-templates/ \
+  -t ~/nuclei-templates/ \
   -c 100 -bs 50 -rl 500 \
   -timeout 3600 -silent \
   -o SESSION/nuclei_batch.txt
@@ -77,8 +77,8 @@ $NUCLEI -l SESSION/web_assets.txt \
 ### 1. 全量扫描（推荐 — 高并发）
 ```bash
 # ✅ 高性能全量扫描（64核服务器）
-/root/go/bin/nuclei -u https://target.com \
-  -t /root/nuclei-templates/ \
+nuclei -u https://target.com \
+  -t ~/nuclei-templates/ \
   -c 100 -bs 25 -rl 500 \
   -timeout 3600 -silent \
   -o /SESSION/nuclei_full.txt
@@ -88,12 +88,12 @@ $NUCLEI -l SESSION/web_assets.txt \
 
 ```bash
 # ✅ 用 -id 指定 CVE（最可靠，自动在全模板库中查找）
-/root/go/bin/nuclei -u https://target.com -id CVE-2024-10915 -silent
-/root/go/bin/nuclei -u https://target.com -id CVE-2023-50164,CVE-2024-4577 -silent
+nuclei -u https://target.com -id CVE-2024-10915 -silent
+nuclei -u https://target.com -id CVE-2023-50164,CVE-2024-4577 -silent
 
 # ✅ 用绝对路径指定单个模板
-/root/go/bin/nuclei -u https://target.com \
-    -t /root/nuclei-templates/http/cves/2024/CVE-2024-10915.yaml -silent
+nuclei -u https://target.com \
+    -t ~/nuclei-templates/http/cves/2024/CVE-2024-10915.yaml -silent
 
 # ❌ 禁止使用相对路径（会找不到模板，0s 完成 0B 输出）
 # nuclei -u URL -t cves/2024/CVE-2024-10915.yaml   ← 错误
@@ -102,28 +102,28 @@ $NUCLEI -l SESSION/web_assets.txt \
 
 ### 3. 按 CVE 标签批量扫描
 ```bash
-/root/go/bin/nuclei -u https://target.com -t /root/nuclei-templates/ -tags cve -silent -o cve_results.txt
+nuclei -u https://target.com -t ~/nuclei-templates/ -tags cve -silent -o cve_results.txt
 ```
 
 ### 4. WordPress 专项扫描
 ```bash
 # 技术识别
-nuclei -u https://target.com -t /root/nuclei-templates/http/technologies/wordpress/ -silent
+nuclei -u https://target.com -t ~/nuclei-templates/http/technologies/wordpress/ -silent
 
 # WordPress 漏洞扫描
-nuclei -u https://target.com -t /root/nuclei-templates/http/vulnerabilities/wordpress/ -silent
+nuclei -u https://target.com -t ~/nuclei-templates/http/vulnerabilities/wordpress/ -silent
 ```
 
 ### 5. 多目标批量扫描
 ```bash
-nuclei -l urls.txt -t /root/nuclei-templates/ -silent -timeout 1800 -o batch_results.txt
+nuclei -l urls.txt -t ~/nuclei-templates/ -silent -timeout 1800 -o batch_results.txt
 ```
 
 ### 6. 子域名全覆盖扫描
 ```bash
 for subdomain in $(cat subs.txt); do
     echo "[*] Scanning: $subdomain"
-    nuclei -u "https://$subdomain" -t /root/nuclei-templates/ -silent \
+    nuclei -u "https://$subdomain" -t ~/nuclei-templates/ -silent \
            -timeout 1800 -o "${subdomain//\//_}_vulns.txt" 2>/dev/null
 done
 ```
@@ -131,43 +131,43 @@ done
 ### 7. 指定特定漏洞类型
 ```bash
 # RCE 扫描
-nuclei -u https://target.com -t /root/nuclei-templates/ -tags rce -silent
+nuclei -u https://target.com -t ~/nuclei-templates/ -tags rce -silent
 
 # SQL 注入
-nuclei -u https://target.com -t /root/nuclei-templates/ -tags sqli -silent
+nuclei -u https://target.com -t ~/nuclei-templates/ -tags sqli -silent
 
 # XSS
-nuclei -u https://target.com -t /root/nuclei-templates/ -tags xss -silent
+nuclei -u https://target.com -t ~/nuclei-templates/ -tags xss -silent
 
 # SSRF
-nuclei -u https://target.com -t /root/nuclei-templates/ -tags ssrf -silent
+nuclei -u https://target.com -t ~/nuclei-templates/ -tags ssrf -silent
 
 # 信息泄露
-nuclei -u https://target.com -t /root/nuclei-templates/ -tags exposure -silent
+nuclei -u https://target.com -t ~/nuclei-templates/ -tags exposure -silent
 ```
 
 ### 8. 加速扫描（64核推荐配置）
 ```bash
-/root/go/bin/nuclei -u https://target.com \
-  -t /root/nuclei-templates/ \
+nuclei -u https://target.com \
+  -t ~/nuclei-templates/ \
   -c 100 -bs 50 -rl 500 \
   -timeout 3600 -silent
 ```
 
 ### 9. 与 httpx 联动（管道扫描）
 ```bash
-cat hosts.txt | httpx -silent | nuclei -t /root/nuclei-templates/ -silent -o results.txt
+cat hosts.txt | httpx -silent | nuclei -t ~/nuclei-templates/ -silent -o results.txt
 ```
 
 ### 10. JSON 格式输出（便于解析）
 ```bash
-nuclei -u https://target.com -t /root/nuclei-templates/ -json -silent | \
+nuclei -u https://target.com -t ~/nuclei-templates/ -json -silent | \
   jq -r '[.info.severity, .info.name, .matched-at] | @tsv'
 ```
 
 ### 11. 添加自定义请求头（绕过 WAF / 认证）
 ```bash
-nuclei -u https://target.com -t /root/nuclei-templates/ \
+nuclei -u https://target.com -t ~/nuclei-templates/ \
        -H "X-Forwarded-For: 127.0.0.1" \
        -H "Authorization: Bearer YOUR_TOKEN" \
        -silent
@@ -178,7 +178,7 @@ nuclei -u https://target.com -t /root/nuclei-templates/ \
 ## 模板目录结构
 
 ```
-/root/nuclei-templates/
+~/nuclei-templates/
 ├── http/
 │   ├── vulnerabilities/          # 漏洞检测
 │   │   ├── wordpress/            # WordPress 漏洞
@@ -205,10 +205,10 @@ nuclei -u https://target.com -t /root/nuclei-templates/ \
 nuclei -update-templates
 
 # 或手动 git pull
-cd /root/nuclei-templates && git pull
+cd ~/nuclei-templates && git pull
 
 # 查看模板数量
-ls /root/nuclei-templates/http/vulnerabilities/ | wc -l
+ls ~/nuclei-templates/http/vulnerabilities/ | wc -l
 ```
 
 ---
@@ -232,6 +232,6 @@ cat results.txt | grep -oP 'CVE-\d{4}-\d+'
 ## ⚠️ 重要原则
 
 - **禁止使用 `-severity` 过滤**：`info/low` 级别的信息泄露同样有价值
-- **全量模板优先**：始终使用 `-t /root/nuclei-templates/` 而非子目录
+- **全量模板优先**：始终使用 `-t ~/nuclei-templates/` 而非子目录
 - **超时要足够长**：全量扫描至少设置 `-timeout 3600`
 - **多资产覆盖**：主域名和每个子域名都需要独立扫描

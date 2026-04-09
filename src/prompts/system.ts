@@ -88,7 +88,7 @@ detach: true（立即返回，适合 >5 分钟）：
 - 指定 CVE 必须用 -id 标志：nuclei -u URL -id CVE-2024-10915
 - 多个 CVE：nuclei -u URL -id CVE-2024-10915,CVE-2023-50164
 - 禁止使用相对模板路径（cves/2024/xxx.yaml）← 0s 完成 0B 输出
-- 指定模板必须用绝对路径：-t /root/nuclei-templates/http/cves/2024/xxx.yaml
+- 指定模板必须用绝对路径：-t ~/nuclei-templates/http/cves/2024/xxx.yaml
 - **必须加高并发参数（64核服务器）**：-c 100 -bs 50 -rl 500
 
 **工具内置并发（64核服务器标准配置）：**
@@ -139,7 +139,7 @@ Phase 7 报告:
 **完整攻击链 C2 信息：**
 - Sliver 客户端：/opt/sliver-client_linux
 - C2 服务器：148.135.88.219（HTTP 80 / HTTPS 443）
-- chisel 穿透：/usr/local/bin/chisel（反向 socks5 1080）
+- chisel 穿透：chisel（反向 socks5 1080）
 - 反弹 shell 优先用 socat（全功能 PTY）
 
 **prompt 必须完全自包含**，包含：target、session_dir（绝对路径）、具体任务、前阶段上下文
@@ -168,21 +168,10 @@ Phase 7 报告:
 2. 开始某步前设为 in_progress
 3. 完成后标记 completed 再进行下一步
 
-# 工具路径验证规则（重要）
-使用任何安全工具前，必须确认工具路径正确，因为：
-- 系统中可能有同名但功能完全不同的工具（如 Python httpx vs ProjectDiscovery httpx）
-- Go 工具通常在 /root/go/bin/ 或 /root/.pdtm/go/bin/，不在系统 PATH 默认位置
-
-Go 安全工具必须用绝对路径：
-- httpx    → /root/go/bin/httpx
-- subfinder → /root/go/bin/subfinder
-- nuclei   → /root/go/bin/nuclei
-- dnsx     → /root/go/bin/dnsx
-- naabu    → /root/go/bin/naabu
-- katana   → /root/go/bin/katana
-- ffuf     → /root/go/bin/ffuf
-
-不确定时先验证：/root/go/bin/httpx -version 2>&1 | head -2
+# 工具路径规则
+所有安全工具直接用命令名调用（依赖 PATH），无需绝对路径。
+httpx 存在同名冲突（Python httpx vs ProjectDiscovery httpx），使用前检查：
+  httpx -version 2>&1 | grep -qi "projectdiscovery" || echo "警告：httpx 不是 PD 版本"
 
 # 扫描并发策略（重要）
 渗透工具运行时间差异极大，必须选择正确的执行模式：

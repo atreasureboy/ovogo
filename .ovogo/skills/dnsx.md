@@ -15,7 +15,7 @@ description: dnsx — DNS 查询与解析工具
 
 | 项目 | 内容 |
 |------|------|
-| 二进制路径 | `/root/go/bin/dnsx` |
+| 二进制路径 | `dnsx` |
 | 项目来源 | ProjectDiscovery |
 | 适用场景 | DNS 批量解析、子域名过滤、DNS 记录枚举 |
 

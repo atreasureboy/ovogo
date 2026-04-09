@@ -22,13 +22,13 @@ description: 完整渗透测试侦察流程
 export PATH=$PATH:/root/go/bin:/root/.pdtm/go/bin:/root/.local/bin
 
 # Go 工具绝对路径（防止 Python 同名工具覆盖）
-HTTPX=/root/go/bin/httpx
-SUBFINDER=/root/go/bin/subfinder
-DNSX=/root/go/bin/dnsx
-NUCLEI=/root/go/bin/nuclei
-NAABU=/root/go/bin/naabu
-KATANA=/root/go/bin/katana
-FFUF=/root/go/bin/ffuf
+HTTPX=httpx
+SUBFINDER=subfinder
+DNSX=dnsx
+NUCLEI=nuclei
+NAABU=naabu
+KATANA=katana
+FFUF=ffuf
 
 # 验证关键工具（任何路径找不到时有备选方案）
 for tool in $HTTPX $SUBFINDER $NUCLEI; do
@@ -129,7 +129,7 @@ cat $OUTPUT_DIR/crawled_urls.txt | \
 # 11. 主域名全量 nuclei 扫描
 # ⚠️ 不使用 -severity 过滤，扫描所有级别
 nuclei -u https://$TARGET \
-       -t /root/nuclei-templates/ \
+       -t ~/nuclei-templates/ \
        -silent \
        -timeout 3600 \
        -o $OUTPUT_DIR/nuclei_main.txt &
@@ -138,7 +138,7 @@ nuclei -u https://$TARGET \
 while read url; do
     domain=$(echo $url | sed 's|https\?://||')
     nuclei -u $url \
-           -t /root/nuclei-templates/ \
+           -t ~/nuclei-templates/ \
            -silent \
            -timeout 1800 \
            -o "$OUTPUT_DIR/nuclei_${domain//[\/:]/_}.txt" &
@@ -234,7 +234,7 @@ echo "扫描完成时间: $(date)" | tee -a $OUTPUT_DIR/summary.txt
 subfinder -d target.com -silent | dnsx -resp-only -a -silent | httpx -title -tech-detect -status-code -silent | tee recon.txt
 
 # 快速漏洞扫描
-nuclei -u https://target.com -t /root/nuclei-templates/ -silent -timeout 3600
+nuclei -u https://target.com -t ~/nuclei-templates/ -silent -timeout 3600
 
 # 快速目录 + XSS
 ffuf -u https://target.com/FUZZ -w /opt/wordlists/seclists/Discovery/Web-Content/common.txt -ac -silent
@@ -247,20 +247,20 @@ katana -u https://target.com -d 3 -silent | grep '=' | dalfox pipe
 
 | 工具 | 路径 |
 |------|------|
-| subfinder | `/root/go/bin/subfinder` |
-| dnsx | `/root/go/bin/dnsx` |
-| httpx | `/root/go/bin/httpx` 或 `/usr/local/bin/httpx` |
-| naabu | `/root/go/bin/naabu` |
-| katana | `/root/go/bin/katana` |
-| nuclei | `/root/go/bin/nuclei` |
-| ffuf | `/root/go/bin/ffuf` |
-| dalfox | `/root/go/bin/dalfox` |
-| cvemap | `/root/go/bin/cvemap` |
+| subfinder | `subfinder` |
+| dnsx | `dnsx` |
+| httpx | `httpx` 或 `/usr/local/bin/httpx` |
+| naabu | `naabu` |
+| katana | `katana` |
+| nuclei | `nuclei` |
+| ffuf | `ffuf` |
+| dalfox | dalfox |
+| cvemap | cvemap |
 | nmap | `/usr/bin/nmap` |
 | sqlmap | 系统 PATH |
 | gobuster | 系统 PATH |
 | hydra | 系统 PATH |
 | wpscan | 系统 PATH |
-| nuclei 模板 | `/root/nuclei-templates/` |
+| nuclei 模板 | `~/nuclei-templates/` |
 | 字典 | `/opt/wordlists/` |
 | SecLists | `/opt/wordlists/seclists/` |

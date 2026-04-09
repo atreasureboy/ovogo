@@ -11,7 +11,7 @@ user_invocable: true
 # 安全工具集完整参考手册
 
 > 工具安装于 Ubuntu 24.04，工具根目录 `/opt/tools/`，字典目录 `/opt/wordlists/`
-> Go 工具位于 `/root/go/bin/`，系统命令在 PATH 中直接可用
+> Go 工具位于 ，系统命令在 PATH 中直接可用
 
 ---
 
@@ -21,11 +21,11 @@ user_invocable: true
 
 | 工具 | 路径/命令 | 典型用法 |
 |------|-----------|----------|
-| **subfinder** | `/root/go/bin/subfinder` | `subfinder -d target.com -o subs.txt` |
-| **amass** | `/root/go/bin/amass` | `amass enum -d target.com -o subs.txt` |
-| **assetfinder** | `/root/go/bin/assetfinder` | `assetfinder --subs-only target.com` |
-| **dnsx** | `/root/go/bin/dnsx` | `cat subs.txt \| dnsx -resp -a` |
-| **shuffledns** | `/root/go/bin/shuffledns` | `shuffledns -d target.com -w /opt/wordlists/subdomains-top5000.txt -r resolvers.txt` |
+| **subfinder** | `subfinder` | `subfinder -d target.com -o subs.txt` |
+| **amass** | amass | `amass enum -d target.com -o subs.txt` |
+| **assetfinder** | assetfinder | `assetfinder --subs-only target.com` |
+| **dnsx** | `dnsx` | `cat subs.txt \| dnsx -resp -a` |
+| **shuffledns** | shuffledns | `shuffledns -d target.com -w /opt/wordlists/subdomains-top5000.txt -r resolvers.txt` |
 
 ### 1.2 端口扫描
 
@@ -33,17 +33,17 @@ user_invocable: true
 |------|------|----------|
 | **nmap** | `nmap` | `nmap -sV -sC -p- --open -T4 target` |
 | **masscan** | `masscan` | `masscan -p1-65535 target --rate=10000` |
-| **naabu** | `/root/go/bin/naabu` | `naabu -host target.com -p - -o ports.txt` |
-| **fscan** | `/root/go/bin/fscan` | `fscan -h 192.168.1.0/24` (内网快速扫描) |
+| **naabu** | `naabu` | `naabu -host target.com -p - -o ports.txt` |
+| **fscan** | fscan | `fscan -h 192.168.1.0/24` (内网快速扫描) |
 
 ### 1.3 HTTP 探测 / 指纹识别
 
 | 工具 | 命令 | 典型用法 |
 |------|------|----------|
-| **httpx** | `/root/go/bin/httpx` | `cat hosts.txt \| httpx -title -tech-detect -status-code` |
+| **httpx** | `httpx` | `cat hosts.txt \| httpx -title -tech-detect -status-code` |
 | **whatweb** | `whatweb` | `whatweb -a 3 https://target.com` |
 | **wafw00f** | `wafw00f` (pip安装) | `wafw00f https://target.com` |
-| **httprobe** | `/root/go/bin/httprobe` | `cat subs.txt \| httprobe` |
+| **httprobe** | httprobe | `cat subs.txt \| httprobe` |
 
 ### 1.4 OSINT / 信息搜集
 
@@ -53,17 +53,17 @@ user_invocable: true
 | **sherlock** | `/opt/tools/sherlock/sherlock.py` | `python3 sherlock.py username` (社交账号追踪) |
 | **recon-ng** | `/opt/tools/recon-ng/recon-ng` | `./recon-ng` (交互式OSINT框架) |
 | **spiderfoot** | `/opt/tools/spiderfoot/sf.py` | `python3 sf.py -l 127.0.0.1:5001` (Web UI) |
-| **metabigor** | `/root/go/bin/metabigor` | `echo "target.com" \| metabigor net --org` |
+| **metabigor** | metabigor | `echo "target.com" \| metabigor net --org` |
 
 ### 1.5 URL / 历史记录
 
 | 工具 | 命令 | 典型用法 |
 |------|------|----------|
-| **waybackurls** | `/root/go/bin/waybackurls` | `echo target.com \| waybackurls` |
-| **gau** | `/root/go/bin/gau` | `gau target.com` |
-| **katana** | `/root/go/bin/katana` | `katana -u https://target.com -d 5` |
-| **hakrawler** | `/root/go/bin/hakrawler` | `echo https://target.com \| hakrawler` |
-| **gospider** | `/root/go/bin/gospider` | `gospider -s https://target.com -d 3` |
+| **waybackurls** | waybackurls | `echo target.com \| waybackurls` |
+| **gau** | gau | `gau target.com` |
+| **katana** | `katana` | `katana -u https://target.com -d 5` |
+| **hakrawler** | hakrawler | `echo https://target.com \| hakrawler` |
+| **gospider** | gospider | `gospider -s https://target.com -d 3` |
 
 ---
 
@@ -71,7 +71,7 @@ user_invocable: true
 
 | 工具 | 命令 | 典型用法 |
 |------|------|----------|
-| **nuclei** | `/root/go/bin/nuclei` | `nuclei -u https://target.com -t /opt/wordlists/nuclei-templates/` |
+| **nuclei** | `nuclei` | `nuclei -u https://target.com -t /opt/wordlists/nuclei-templates/` |
 | **nikto** | `nikto` | `nikto -h https://target.com` |
 | **nmap NSE** | `nmap` | `nmap --script vuln target` |
 | **searchsploit** | `searchsploit` | `searchsploit apache 2.4` (查exploit-db) |
@@ -86,7 +86,7 @@ user_invocable: true
 | 工具 | 命令 | 典型用法 |
 |------|------|----------|
 | **gobuster** | `gobuster` | `gobuster dir -u https://target.com -w /opt/wordlists/seclists/Discovery/Web-Content/common.txt` |
-| **ffuf** | `/root/go/bin/ffuf` | `ffuf -u https://target.com/FUZZ -w /opt/wordlists/seclists/Discovery/Web-Content/big.txt` |
+| **ffuf** | `ffuf` | `ffuf -u https://target.com/FUZZ -w /opt/wordlists/seclists/Discovery/Web-Content/big.txt` |
 | **feroxbuster** | `feroxbuster` | `feroxbuster -u https://target.com -w wordlist.txt` |
 | **dirb** | `dirb` | `dirb https://target.com /opt/wordlists/seclists/Discovery/Web-Content/common.txt` |
 | **dirsearch** | `/opt/tools/dirsearch/dirsearch.py` | `python3 dirsearch.py -u https://target.com` |
@@ -99,7 +99,7 @@ user_invocable: true
 | **sqlmap** | `sqlmap` | `sqlmap -u "https://target.com?id=1" --dbs --batch` |
 | **commix** | `/opt/tools/commix/commix.py` | `python3 commix.py --url="https://target.com?cmd=id"` (命令注入) |
 | **XSStrike** | `/opt/tools/xsstrike/xsstrike.py` | `python3 xsstrike.py -u https://target.com?q=test` |
-| **dalfox** | `/root/go/bin/dalfox` | `dalfox url https://target.com?q=test` (XSS扫描) |
+| **dalfox** | dalfox | `dalfox url https://target.com?q=test` (XSS扫描) |
 | **patator** | `/opt/tools/patator/patator.py` | `python3 patator.py http_fuzz url=https://target.com/FUZZ` |
 
 ### 3.3 CMS 专项
@@ -424,19 +424,19 @@ nmap -sV --open -p- -T4 --min-rate 5000 target -oA scan_result
 
 | 分类 | 工具 | 路径/命令 |
 |------|------|-----------|
-| 子域 | subfinder | `/root/go/bin/subfinder` |
-| 子域 | amass | `/root/go/bin/amass` |
+| 子域 | subfinder | `subfinder` |
+| 子域 | amass | amass |
 | 端口 | nmap | `nmap` |
 | 端口 | masscan | `masscan` |
-| 端口 | naabu | `/root/go/bin/naabu` |
-| HTTP探测 | httpx | `/root/go/bin/httpx` |
-| 目录 | ffuf | `/root/go/bin/ffuf` |
+| 端口 | naabu | `naabu` |
+| HTTP探测 | httpx | `httpx` |
+| 目录 | ffuf | `ffuf` |
 | 目录 | gobuster | `gobuster` |
 | 目录 | feroxbuster | `feroxbuster` |
-| 漏扫 | nuclei | `/root/go/bin/nuclei` |
+| 漏扫 | nuclei | `nuclei` |
 | 漏扫 | nikto | `nikto` |
 | SQL注入 | sqlmap | `sqlmap` |
-| XSS | dalfox | `/root/go/bin/dalfox` |
+| XSS | dalfox | dalfox |
 | 密码 | hydra | `hydra` |
 | 密码 | hashcat | `hashcat` |
 | 密码 | john | `john` |

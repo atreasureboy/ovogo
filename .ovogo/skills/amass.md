@@ -67,7 +67,7 @@ amass viz -maltego -d TARGET.com
 
 ```bash
 # 1. subfinder 快速枚举（<1分钟）
-/root/go/bin/subfinder -d TARGET.com -silent > /SESSION/subs_subfinder.txt
+subfinder -d TARGET.com -silent > /SESSION/subs_subfinder.txt
 
 # 2. amass 深度枚举（后台跑，可能需要 10-30 分钟）
 amass enum -passive -d TARGET.com -o /SESSION/subs_amass.txt &
@@ -99,6 +99,6 @@ grep -oP '[a-zA-Z0-9\-\.]+\.TARGET\.com' /SESSION/amass_active.txt | \
     sort -u > /SESSION/subs_clean.txt
 
 # 与存活探测结合
-cat /SESSION/subs_clean.txt | /root/go/bin/httpx -sc -title -silent \
+cat /SESSION/subs_clean.txt | httpx -sc -title -silent \
     > /SESSION/amass_live.txt
 ```

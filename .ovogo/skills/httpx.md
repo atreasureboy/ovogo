@@ -18,7 +18,7 @@ description: httpx (ProjectDiscovery) — HTTP 批量探测与指纹识别
 ```bash
 # 检测 ProjectDiscovery httpx 的正确路径
 PD_HTTPX=""
-for p in /root/go/bin/httpx /root/.pdtm/go/bin/httpx /usr/local/bin/httpx-pd /home/$(whoami)/go/bin/httpx; do
+for p in httpx /root/.pdtm/go/bin/httpx /usr/local/bin/httpx-pd /home/$(whoami)/go/bin/httpx; do
     if [ -x "$p" ] && $p -version 2>&1 | grep -qi "projectdiscovery\|httpx v"; then
         PD_HTTPX="$p"
         break
@@ -63,7 +63,7 @@ echo "ProjectDiscovery httpx: ${PD_HTTPX:-未找到}"
 
 ```bash
 # 先设置变量
-PD_HTTPX=/root/go/bin/httpx   # 或检测到的路径
+PD_HTTPX=httpx   # 或检测到的路径
 
 # 单目标探测
 echo "https://TARGET" | $PD_HTTPX -sc -title -td -server -silent
@@ -116,9 +116,9 @@ unzip /tmp/httpx.zip -d /usr/local/bin/
 
 ```bash
 # 完整侦察流水线
-PD_HTTPX=/root/go/bin/httpx
+PD_HTTPX=httpx
 subfinder -d TARGET -silent | \
-    /root/go/bin/dnsx -a -resp-only -silent | \
+    dnsx -a -resp-only -silent | \
     $PD_HTTPX -sc -title -td -server -ip -cdn -silent | \
     tee /SESSION/full_web_assets.txt
 

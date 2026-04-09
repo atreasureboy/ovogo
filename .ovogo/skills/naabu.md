@@ -15,7 +15,7 @@ description: naabu — 高速端口扫描工具
 
 | 项目 | 内容 |
 |------|------|
-| 二进制路径 | `/root/go/bin/naabu` |
+| 二进制路径 | `naabu` |
 | 项目来源 | ProjectDiscovery |
 | 适用场景 | 快速端口发现、资产端口普查、为 nmap 提供预扫描 |
 
