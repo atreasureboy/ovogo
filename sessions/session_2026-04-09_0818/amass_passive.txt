@@ -1,6 +1,0 @@
-zhhovo.top (FQDN) --> ns_record --> dns31.hichina.com (FQDN)
-zhhovo.top (FQDN) --> ns_record --> dns32.hichina.com (FQDN)
-zhhovo.top (FQDN) --> ns_record --> dns31.hichina.com (FQDN)
-zhhovo.top (FQDN) --> ns_record --> dns32.hichina.com (FQDN)
-
-The enumeration has finished

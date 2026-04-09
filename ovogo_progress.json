@@ -1,6 +1,6 @@
 {
   "current_step": "running",
-  "next_action": "渗透测试zhhovo.top",
-  "timestamp": "2026-04-09T08:30:32.718Z",
+  "next_action": "渗透测试 192.170.113.73注意这个是我们公司内网的靶机，你无法直接访问，每一步操作请使用proxychains4，这个是我们公司的中转站，只能通过中转站进行渗透测试，只有中转站有授权，还有",
+  "timestamp": "2026-04-09T11:20:38.957Z",
   "cwd": "/project/ovogogogo"
 }

@@ -1,7 +1,7 @@
 /**
  * WeaponRadar — 武器库语义检索工具
  *
- * 调用 /data/poc_db/weapon_radar_query.py，对公司 22W Nuclei PoC 数据库
+ * 调用 poc/weapon_radar_query.py，对公司 22W Nuclei PoC 数据库
  * 进行自然语言向量检索（BGE-M3 + pgvector），返回最匹配的漏洞武器。
  *
  * 支持批量查询：queries[] 参数可传入多个查询，模型只加载一次（避免 2×60s 开销）。
@@ -13,7 +13,11 @@
 import { exec } from 'child_process'
 import type { Tool, ToolContext, ToolDefinition, ToolResult } from '../core/types.js'
 
-const RADAR_SCRIPT = '/data/poc_db/weapon_radar_query.py'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const _dir = path.dirname(fileURLToPath(import.meta.url))
+const RADAR_SCRIPT = path.resolve(_dir, '../../poc/weapon_radar_query.py')
 const TIMEOUT_MS   = 180_000   // 3 分钟：首次加载 BGE-M3 可能需要 60s+
 
 interface RadarResult {

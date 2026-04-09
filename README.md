@@ -13,7 +13,7 @@
 | API 接口 | OpenAI 兼容格式（非 Anthropic SDK），支持任意兼容端点 |
 | 运行环境 | 64 核 Linux 云服务器，`/project/ovogogogo/` |
 | 测试目标 | `zhhovo.top`（授权测试靶场） |
-| PoC 数据库 | 22 万条 Nuclei PoC（pgvector + BGE-M3 嵌入，`/data/poc_db/`） |
+| PoC 数据库 | 22 万条 Nuclei PoC（pgvector + BGE-M3 嵌入，`poc/`） |
 | C2 框架 | Sliver v1.7.3（`/opt/sliver-client_linux`，测试服务器 ``） |
 | 内网穿透 | chisel（`/usr/local/bin/chisel`）+ proxychains |
 
@@ -283,14 +283,14 @@ Orchestrator (主引擎, 200轮上限)
 
 ```bash
 # 单查询（默认返回完整PoC代码）
-python3 /data/poc_db/weapon_radar_query.py -q "Apache Shiro 反序列化" -n 3
+python3 poc/weapon_radar_query.py -q "Apache Shiro 反序列化" -n 3
 
 # 批量查询（一次加载模型，处理多个查询）
-python3 /data/poc_db/weapon_radar_query.py \
+python3 poc/weapon_radar_query.py \
   --batch-json '[{"query":"WordPress RCE","top_k":3},{"query":"Log4j","top_k":3}]'
 
 # 不要PoC代码（只看匹配结果）
-python3 /data/poc_db/weapon_radar_query.py -q "SSRF" --no-code
+python3 poc/weapon_radar_query.py -q "SSRF" --no-code
 ```
 
 ### WeaponRadar 工具用法
@@ -431,7 +431,7 @@ proxychains4 nmap -sV -p 22,80,443 INTERNAL_HOST
 │       ├── evidence/          # 漏洞证据截图/响应
 │       └── report.md          # 最终报告
 │
-└── /data/poc_db/              # 武器库（独立目录）
+└── poc/                       # 武器库脚本
     ├── weapon_radar.py        # 核心引擎（BGE-M3向量+pgvector）
     └── weapon_radar_query.py  # JSON接口（供 WeaponRadar 工具调用）
 ```

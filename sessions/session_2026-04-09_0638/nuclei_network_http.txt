@@ -1,1 +1,0 @@
-[openssh-detect] [tcp] [info] zhhovo.top:22 ["SSH-2.0-OpenSSH_8.0"]
