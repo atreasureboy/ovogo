@@ -1,6 +1,6 @@
 {
-  "current_step": "idle",
-  "next_action": "waiting for next task",
-  "timestamp": "2026-04-09T07:29:54.063Z",
+  "current_step": "running",
+  "next_action": "渗透测试zhhovo.top",
+  "timestamp": "2026-04-09T08:30:32.718Z",
   "cwd": "/project/ovogogogo"
 }

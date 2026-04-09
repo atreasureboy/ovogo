@@ -1,0 +1,207 @@
+# Nmap 7.94SVN scan initiated Thu Apr  9 08:31:43 2026 as: nmap -sV --version-intensity 2 -sC -p 22,80,443 -oN /project/ovogogogo/sessions/session_2026-04-09_0818/nmap_services.txt 39.106.227.104
+Nmap scan report for 39.106.227.104
+Host is up (0.18s latency).
+
+PORT    STATE SERVICE    VERSION
+22/tcp  open  ssh        OpenSSH 8.0 (protocol 2.0)
+| ssh-hostkey: 
+|   3072 f0:35:31:27:cb:f5:da:30:c8:5b:9b:10:2c:59:e9:4a (RSA)
+|   256 01:32:a3:e5:5a:ea:e4:36:37:c4:72:40:4c:c6:31:71 (ECDSA)
+|_  256 a5:7e:05:15:e6:1d:90:28:78:aa:75:32:63:c4:4d:5c (ED25519)
+80/tcp  open  http?
+|_http-title: 404 Not Found
+| fingerprint-strings: 
+|   FourOhFourRequest: 
+|     HTTP/1.1 400 Bad Request
+|     Date: Thu, 09 Apr 2026 08:31:51 GMT
+|     Content-Type: text/html
+|     Content-Length: 150
+|     Connection: close
+|     Set-Cookie: sl-session=BJQbFXe12GnNpDokOPmaLQ==; Path=/; Max-Age=86400; HttpOnly
+|     <html>
+|     <head><title>400 Bad Request</title></head>
+|     <body>
+|     <center><h1>400 Bad Request</h1></center>
+|     <hr><center>nginx</center>
+|     </body>
+|     </html>
+|   GetRequest, HTTPOptions: 
+|     HTTP/1.1 400 Bad Request
+|     Date: Thu, 09 Apr 2026 08:31:50 GMT
+|     Content-Type: text/html
+|     Content-Length: 150
+|     Connection: close
+|     Set-Cookie: sl-session=/oJYJ3a12GnVCGFhOAqTLQ==; Path=/; Max-Age=86400; HttpOnly
+|     <html>
+|     <head><title>400 Bad Request</title></head>
+|     <body>
+|     <center><h1>400 Bad Request</h1></center>
+|     <hr><center>nginx</center>
+|     </body>
+|     </html>
+|   RTSPRequest, X11Probe: 
+|     HTTP/1.1 400 Bad Request
+|     Date: Thu, 09 Apr 2026 08:31:51 GMT
+|     Content-Type: text/html
+|     Content-Length: 204
+|     Connection: close
+|     <!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+|     <html>
+|     <head><title>400 Bad Request</title></head>
+|     <body>
+|     <center><h1>400 Bad Request</h1></center>
+|     <hr><center>tengine</center>
+|     </body>
+|_    </html>
+443/tcp open  ssl/https?
+|_ssl-date: TLS randomness does not represent time
+| ssl-cert: Subject: commonName=zhhovo.top
+| Subject Alternative Name: DNS:www.zhhovo.top, DNS:zhhovo.top
+| Not valid before: 2026-03-24T13:00:23
+|_Not valid after:  2026-06-22T13:00:22
+| http-cookie-flags: 
+|   /: 
+|     PHPSESSID: 
+|       secure flag not set and HTTPS in use
+|_      httponly flag not set
+|_http-generator: WordPress 6.9.4
+|_http-title: ZHHQZS
+| tls-alpn: 
+|   h2
+|   http/1.1
+|   http/1.0
+|_  http/0.9
+| fingerprint-strings: 
+|   FourOhFourRequest: 
+|     HTTP/1.1 400 Bad Request
+|     Date: Thu, 09 Apr 2026 08:31:58 GMT
+|     Content-Type: text/html
+|     Content-Length: 150
+|     Connection: close
+|     Set-Cookie: SITE_TOTAL_ID=23c58cb7886fd3b27221ee6ac802a357; Path=/; Max-Age=259200000; HttpOnly
+|     Set-Cookie: sl-session=tQIRFn612Gn1HgeUWbK2Mw==; SameSite=None; Secure; Path=/; Max-Age=86400; HttpOnly
+|     <html>
+|     <head><title>400 Bad Request</title></head>
+|     <body>
+|     <center><h1>400 Bad Request</h1></center>
+|     <hr><center>nginx</center>
+|     </body>
+|     </html>
+|   GetRequest: 
+|     HTTP/1.1 400 Bad Request
+|     Date: Thu, 09 Apr 2026 08:31:56 GMT
+|     Content-Type: text/html
+|     Content-Length: 150
+|     Connection: close
+|     Set-Cookie: SITE_TOTAL_ID=e011acbed0d1971fb2db2bd36ee9f8ff; Path=/; Max-Age=259200000; HttpOnly
+|     Set-Cookie: sl-session=ZpzEeny12GmoeptSwZdT/A==; SameSite=None; Secure; Path=/; Max-Age=86400; HttpOnly
+|     <html>
+|     <head><title>400 Bad Request</title></head>
+|     <body>
+|     <center><h1>400 Bad Request</h1></center>
+|     <hr><center>nginx</center>
+|     </body>
+|     </html>
+|   HTTPOptions: 
+|     HTTP/1.1 400 Bad Request
+|     Date: Thu, 09 Apr 2026 08:31:57 GMT
+|     Content-Type: text/html
+|     Content-Length: 150
+|     Connection: close
+|     Set-Cookie: SITE_TOTAL_ID=b360251e36323c02a8942045141e4a79; Path=/; Max-Age=259200000; HttpOnly
+|     Set-Cookie: sl-session=IV1AKH212Gm5Kp5RPqh7Tw==; SameSite=None; Secure; Path=/; Max-Age=86400; HttpOnly
+|     <html>
+|     <head><title>400 Bad Request</title></head>
+|     <body>
+|     <center><h1>400 Bad Request</h1></center>
+|     <hr><center>nginx</center>
+|     </body>
+|     </html>
+|   tor-versions: 
+|     HTTP/1.1 400 Bad Request
+|     Date: Thu, 09 Apr 2026 08:31:59 GMT
+|     Content-Type: text/html
+|     Content-Length: 204
+|     Connection: close
+|     <!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML 2.0//EN">
+|     <html>
+|     <head><title>400 Bad Request</title></head>
+|     <body>
+|     <center><h1>400 Bad Request</h1></center>
+|     <hr><center>tengine</center>
+|     </body>
+|_    </html>
+2 services unrecognized despite returning data. If you know the service/version, please submit the following fingerprints at https://nmap.org/cgi-bin/submit.cgi?new-service :
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port80-TCP:V=7.94SVN%I=2%D=4/9%Time=69D763F6%P=x86_64-pc-linux-gnu%r(Ge
+SF:tRequest,16A,"HTTP/1\.1\x20400\x20Bad\x20Request\r\nDate:\x20Thu,\x2009
+SF:\x20Apr\x202026\x2008:31:50\x20GMT\r\nContent-Type:\x20text/html\r\nCon
+SF:tent-Length:\x20150\r\nConnection:\x20close\r\nSet-Cookie:\x20sl-sessio
+SF:n=/oJYJ3a12GnVCGFhOAqTLQ==;\x20Path=/;\x20Max-Age=86400;\x20HttpOnly\r\
+SF:n\r\n<html>\r\n<head><title>400\x20Bad\x20Request</title></head>\r\n<bo
+SF:dy>\r\n<center><h1>400\x20Bad\x20Request</h1></center>\r\n<hr><center>n
+SF:ginx</center>\r\n</body>\r\n</html>\r\n")%r(HTTPOptions,16A,"HTTP/1\.1\
+SF:x20400\x20Bad\x20Request\r\nDate:\x20Thu,\x2009\x20Apr\x202026\x2008:31
+SF::50\x20GMT\r\nContent-Type:\x20text/html\r\nContent-Length:\x20150\r\nC
+SF:onnection:\x20close\r\nSet-Cookie:\x20sl-session=/oJYJ3a12GnVCGFhOAqTLQ
+SF:==;\x20Path=/;\x20Max-Age=86400;\x20HttpOnly\r\n\r\n<html>\r\n<head><ti
+SF:tle>400\x20Bad\x20Request</title></head>\r\n<body>\r\n<center><h1>400\x
+SF:20Bad\x20Request</h1></center>\r\n<hr><center>nginx</center>\r\n</body>
+SF:\r\n</html>\r\n")%r(RTSPRequest,14E,"HTTP/1\.1\x20400\x20Bad\x20Request
+SF:\r\nDate:\x20Thu,\x2009\x20Apr\x202026\x2008:31:51\x20GMT\r\nContent-Ty
+SF:pe:\x20text/html\r\nContent-Length:\x20204\r\nConnection:\x20close\r\n\
+SF:r\n<!DOCTYPE\x20HTML\x20PUBLIC\x20\"-//IETF//DTD\x20HTML\x202\.0//EN\">
+SF:\r\n<html>\r\n<head><title>400\x20Bad\x20Request</title></head>\r\n<bod
+SF:y>\r\n<center><h1>400\x20Bad\x20Request</h1></center>\r\n<hr><center>te
+SF:ngine</center>\r\n</body>\r\n</html>\r\n")%r(X11Probe,14E,"HTTP/1\.1\x2
+SF:0400\x20Bad\x20Request\r\nDate:\x20Thu,\x2009\x20Apr\x202026\x2008:31:5
+SF:1\x20GMT\r\nContent-Type:\x20text/html\r\nContent-Length:\x20204\r\nCon
+SF:nection:\x20close\r\n\r\n<!DOCTYPE\x20HTML\x20PUBLIC\x20\"-//IETF//DTD\
+SF:x20HTML\x202\.0//EN\">\r\n<html>\r\n<head><title>400\x20Bad\x20Request<
+SF:/title></head>\r\n<body>\r\n<center><h1>400\x20Bad\x20Request</h1></cen
+SF:ter>\r\n<hr><center>tengine</center>\r\n</body>\r\n</html>\r\n")%r(Four
+SF:OhFourRequest,16A,"HTTP/1\.1\x20400\x20Bad\x20Request\r\nDate:\x20Thu,\
+SF:x2009\x20Apr\x202026\x2008:31:51\x20GMT\r\nContent-Type:\x20text/html\r
+SF:\nContent-Length:\x20150\r\nConnection:\x20close\r\nSet-Cookie:\x20sl-s
+SF:ession=BJQbFXe12GnNpDokOPmaLQ==;\x20Path=/;\x20Max-Age=86400;\x20HttpOn
+SF:ly\r\n\r\n<html>\r\n<head><title>400\x20Bad\x20Request</title></head>\r
+SF:\n<body>\r\n<center><h1>400\x20Bad\x20Request</h1></center>\r\n<hr><cen
+SF:ter>nginx</center>\r\n</body>\r\n</html>\r\n");
+==============NEXT SERVICE FINGERPRINT (SUBMIT INDIVIDUALLY)==============
+SF-Port443-TCP:V=7.94SVN%T=SSL%I=2%D=4/9%Time=69D763FC%P=x86_64-pc-linux-g
+SF:nu%r(GetRequest,1E2,"HTTP/1\.1\x20400\x20Bad\x20Request\r\nDate:\x20Thu
+SF:,\x2009\x20Apr\x202026\x2008:31:56\x20GMT\r\nContent-Type:\x20text/html
+SF:\r\nContent-Length:\x20150\r\nConnection:\x20close\r\nSet-Cookie:\x20SI
+SF:TE_TOTAL_ID=e011acbed0d1971fb2db2bd36ee9f8ff;\x20Path=/;\x20Max-Age=259
+SF:200000;\x20HttpOnly\r\nSet-Cookie:\x20sl-session=ZpzEeny12GmoeptSwZdT/A
+SF:==;\x20SameSite=None;\x20Secure;\x20Path=/;\x20Max-Age=86400;\x20HttpOn
+SF:ly\r\n\r\n<html>\r\n<head><title>400\x20Bad\x20Request</title></head>\r
+SF:\n<body>\r\n<center><h1>400\x20Bad\x20Request</h1></center>\r\n<hr><cen
+SF:ter>nginx</center>\r\n</body>\r\n</html>\r\n")%r(HTTPOptions,1E2,"HTTP/
+SF:1\.1\x20400\x20Bad\x20Request\r\nDate:\x20Thu,\x2009\x20Apr\x202026\x20
+SF:08:31:57\x20GMT\r\nContent-Type:\x20text/html\r\nContent-Length:\x20150
+SF:\r\nConnection:\x20close\r\nSet-Cookie:\x20SITE_TOTAL_ID=b360251e36323c
+SF:02a8942045141e4a79;\x20Path=/;\x20Max-Age=259200000;\x20HttpOnly\r\nSet
+SF:-Cookie:\x20sl-session=IV1AKH212Gm5Kp5RPqh7Tw==;\x20SameSite=None;\x20S
+SF:ecure;\x20Path=/;\x20Max-Age=86400;\x20HttpOnly\r\n\r\n<html>\r\n<head>
+SF:<title>400\x20Bad\x20Request</title></head>\r\n<body>\r\n<center><h1>40
+SF:0\x20Bad\x20Request</h1></center>\r\n<hr><center>nginx</center>\r\n</bo
+SF:dy>\r\n</html>\r\n")%r(FourOhFourRequest,1E2,"HTTP/1\.1\x20400\x20Bad\x
+SF:20Request\r\nDate:\x20Thu,\x2009\x20Apr\x202026\x2008:31:58\x20GMT\r\nC
+SF:ontent-Type:\x20text/html\r\nContent-Length:\x20150\r\nConnection:\x20c
+SF:lose\r\nSet-Cookie:\x20SITE_TOTAL_ID=23c58cb7886fd3b27221ee6ac802a357;\
+SF:x20Path=/;\x20Max-Age=259200000;\x20HttpOnly\r\nSet-Cookie:\x20sl-sessi
+SF:on=tQIRFn612Gn1HgeUWbK2Mw==;\x20SameSite=None;\x20Secure;\x20Path=/;\x2
+SF:0Max-Age=86400;\x20HttpOnly\r\n\r\n<html>\r\n<head><title>400\x20Bad\x2
+SF:0Request</title></head>\r\n<body>\r\n<center><h1>400\x20Bad\x20Request<
+SF:/h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n")
+SF:%r(tor-versions,14E,"HTTP/1\.1\x20400\x20Bad\x20Request\r\nDate:\x20Thu
+SF:,\x2009\x20Apr\x202026\x2008:31:59\x20GMT\r\nContent-Type:\x20text/html
+SF:\r\nContent-Length:\x20204\r\nConnection:\x20close\r\n\r\n<!DOCTYPE\x20
+SF:HTML\x20PUBLIC\x20\"-//IETF//DTD\x20HTML\x202\.0//EN\">\r\n<html>\r\n<h
+SF:ead><title>400\x20Bad\x20Request</title></head>\r\n<body>\r\n<center><h
+SF:1>400\x20Bad\x20Request</h1></center>\r\n<hr><center>tengine</center>\r
+SF:\n</body>\r\n</html>\r\n");
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+# Nmap done at Thu Apr  9 08:32:15 2026 -- 1 IP address (1 host up) scanned in 31.96 seconds

@@ -115,20 +115,32 @@ detach: true（立即返回，适合 >5 分钟）：
 
 **并行执行原则：同一响应中调用多个 Agent → 全部同时运行**
 
-Phase 1 侦察（一次性全部启动）:
-  Agent(dns-recon) + Agent(port-scan) + Agent(web-probe)  ← 3个同时跑
+Phase 1 侦察（3个同时）:
+  Agent(dns-recon) + Agent(port-scan) + Agent(web-probe)
 
-Phase 2 情报（recon完成后）:
-  Agent(weapon-match) + Agent(osint)  ← 2个同时跑
+Phase 2 情报（2个同时）:
+  Agent(weapon-match) + Agent(osint)
 
-Phase 3 漏洞扫描（intel完成后）:
-  Agent(web-vuln) + Agent(service-vuln) + Agent(auth-attack)  ← 3个同时跑
+Phase 3 漏洞扫描（3个同时）:
+  Agent(web-vuln) + Agent(service-vuln) + Agent(auth-attack)
 
-Phase 4 验证（scan完成后，每个高置信发现1个）:
-  Agent(poc-verify, CVE-A) + Agent(poc-verify, CVE-B) + ...  ← N个同时跑
+Phase 4 漏洞验证+利用（N个同时）:
+  Agent(poc-verify) + Agent(exploit, 针对RCE/上传漏洞) + Agent(webshell)
 
-Phase 5 报告:
-  Agent(report)  ← 最后单独跑
+Phase 5 后渗透（取得shell后，3个同时）:
+  Agent(post-exploit) + Agent(privesc) + Agent(c2-deploy)
+
+Phase 6 内网横移（内网信息收集后）:
+  Agent(tunnel) → Agent(internal-recon) → Agent(lateral, host1) + Agent(lateral, host2)
+
+Phase 7 报告:
+  Agent(report)
+
+**完整攻击链 C2 信息：**
+- Sliver 客户端：/opt/sliver-client_linux
+- C2 服务器：148.135.88.219（HTTP 80 / HTTPS 443）
+- chisel 穿透：/usr/local/bin/chisel（反向 socks5 1080）
+- 反弹 shell 优先用 socat（全功能 PTY）
 
 **prompt 必须完全自包含**，包含：target、session_dir（绝对路径）、具体任务、前阶段上下文
 **Agent 不能再调用 Agent**（禁止递归）
