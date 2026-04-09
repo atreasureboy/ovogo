@@ -7,12 +7,12 @@
 
 ## 一、项目定位
 
-**ovogogogo** 是一个基于 OpenAI 兼容接口的红队渗透自动化引擎，专为网络安全公司内部渗透测试场景设计。
+**ovogogogo** 是一个基于 OpenAI 兼容接口的红队渗透自动化引擎，渗透测试场景设计。
 
 - **API 接口**：OpenAI 兼容格式（非 Anthropic SDK），支持任意兼容端点
 - **运行环境**：64 核 Linux 云服务器，`/project/ovogogogo/`
-- **授权测试范围**：`zhhovo.top`（公司测试靶场，完全白名单）
-- **PoC 数据库**：公司内部 22 万条 Nuclei PoC（pgvector + BGE-M3，`/data/poc_db/`）
+- **授权测试范围**：`zhhovo.top`（测试靶场，完全白名单）
+- **PoC_RAG 数据库** 22 万条 Nuclei PoC（pgvector + BGE-M3，`/data/poc_db/`）
 
 ---
 
