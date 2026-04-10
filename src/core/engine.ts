@@ -163,6 +163,9 @@ const CONCURRENCY_SAFE_TOOLS = new Set([
   'Bash',        // parallel — dependent ops should be chained with && in one call
   'Agent',       // parallel — multiple sub-agents run simultaneously via Promise.all
   'MultiAgent',  // parallel — internally uses Promise.all; safe to batch with others
+  'C2',          // parallel — deploy_listener / get_ip / list_sessions are safe
+  'ShellSession', // parallel — listen / list / exec on different sessions
+  'TmuxSession',  // parallel — new / list / capture on different sessions
 ])
 
 /**
@@ -592,11 +595,17 @@ export class ExecutionEngine {
       }
     }
 
-    // Check cache first
-    const cachedResult = this.toolCache.get(toolName, input)
-    if (cachedResult) {
-      this.renderer.info(`[Cache hit] ${toolName}`)
-      return cachedResult
+    // Check cache first (skip for non-cacheable tools)
+    const NO_CACHE_TOOLS = new Set([
+      'Bash', 'ShellSession', 'TmuxSession', 'C2',
+      'Write', 'Edit', 'FileEdit', 'FindingWrite',
+    ])
+    if (!NO_CACHE_TOOLS.has(toolName)) {
+      const cachedResult = this.toolCache.get(toolName, input)
+      if (cachedResult) {
+        this.renderer.info(`[Cache hit] ${toolName}`)
+        return cachedResult
+      }
     }
 
     const tool = findTool(this.tools, toolName)
@@ -609,7 +618,7 @@ export class ExecutionEngine {
     
     try {
       // Start progress tracking for long-running tools
-      const isLongRunningTool = ['Bash', 'MultiScan', 'WeaponRadar', 'WebSearch'].includes(toolName)
+      const isLongRunningTool = ['Bash', 'MultiScan', 'WeaponRadar', 'WebSearch', 'C2'].includes(toolName)
       if (isLongRunningTool) {
         this.progressTracker.start(taskId, toolName, input)
         this.renderer.info(`[Progress] Starting ${toolName} task ${taskId}`)
@@ -638,12 +647,13 @@ export class ExecutionEngine {
         this.renderer.info(`[Progress] ${toolName} completed`)
       }
 
-      // Cache the result (only for successful, non-error results)
-      if (!result.isError) {
-        // Set shorter TTL for certain tools
+      // Cache the result (only for cacheable, successful, non-error results)
+      if (!result.isError && !NO_CACHE_TOOLS.has(toolName)) {
         let ttl = undefined
         if (['WebFetch', 'WebSearch'].includes(toolName)) {
-          ttl = 1 * 60 * 60 * 1000 // 1 hour for web-based tools
+          ttl = 1 * 60 * 60 * 1000
+        } else if (['Read', 'Glob', 'Grep'].includes(toolName)) {
+          ttl = 5 * 60 * 1000
         }
         this.toolCache.set(toolName, input, result, ttl)
       }

