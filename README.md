@@ -843,5 +843,28 @@ node dist/bin/ovogogogo.js \
 | katana | `-d 2 -timeout 30` | 深度2层，30s请求超时 |
 
 ---
+### 使用说明
+ export WEAPON_RADAR_URL=http://POC库接口:8765
+# 1. 注入 API 密钥
+export OPENAI_API_KEY=APIKEY
+
+# 2. 设置端点（将 OpenAI 的请求流量重定向到阿里云）
+export OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1（默认）
+
+# 3. 指定默认大脑（ovogogogo 启动时会优先读取这个变量）
+export OVOGO_MODEL=qwen3-max
+export OVOGO_MAX_ITER=1000
+
+# 1. 进入项目根目录
+cd /project/ovogogogo
+
+# 2. 安装运行环境所需的库（pnpm 效率最高）
+pnpm install
+
+# 3. 将 TypeScript 编译为可执行的 JavaScript
+
+npm run build
+#启动
+node dist/bin/ovogogogo.js
 
 > 本项目仅用于授权范围内的安全测试。使用者须确保已获得目标系统的书面授权，并遵守当地法律法规。
