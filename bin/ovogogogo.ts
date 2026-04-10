@@ -354,28 +354,31 @@ async function runRepl(
   const history: OpenAIMessage[] = []
 
   renderer.info(`Type your task and press Enter · /plan /skills /help /exit`)
-  renderer.info(`Ctrl+C to cancel · Ctrl+D to exit`)
+  renderer.info(`ESC to pause/inject · Ctrl+D to exit`)
 
   let running = false
-  // Counts Ctrl+C presses during the current task:
-  // 1st press = soft pause (inject message), 2nd = hard cancel
-  let sigintCount = 0
+  // Whether we are currently awaiting the user's interrupt-prompt input
+  // (prevents a second ESC from re-triggering softAbort while reading feedback)
+  let awaitingInput = false
 
+  // ── ESC key: soft pause ───────────────────────────────────────
+  // readline in terminal mode calls readline.emitKeypressEvents(stdin) internally,
+  // so stdin already emits 'keypress' events by the time we get here.
+  process.stdin.on('keypress', (_str: unknown, key: { name?: string }) => {
+    if (key?.name === 'escape' && running && !awaitingInput) {
+      engine.softAbort()
+      renderer.stopSpinner()
+      renderer.warn('⚡ 正在暂停... (当前工具执行完后暂停，然后可输入建议)')
+    }
+  })
+
+  // ── Ctrl+C: hard kill (no two-stage logic) ───────────────────
   process.on('SIGINT', () => {
     if (running) {
-      sigintCount++
-      if (sigintCount === 1) {
-        // Soft interrupt — pause after current tool finishes
-        engine.softAbort()
-        renderer.stopSpinner()
-        renderer.warn('⚡ 正在暂停... (当前工具执行完后暂停)  再按 Ctrl+C 立即取消')
-      } else {
-        // Hard cancel — kills in-flight API calls and tool processes
-        engine.abort()
-        renderer.stopSpinner()
-        renderer.warn('已取消。')
-        running = false
-      }
+      engine.abort()
+      renderer.stopSpinner()
+      renderer.warn('已取消。')
+      running = false
     } else {
       renderer.newline()
       renderer.info('按 Ctrl+D 或输入 /exit 退出。')
@@ -388,14 +391,12 @@ async function runRepl(
    */
   async function runTask(prompt: string, taskHistory: OpenAIMessage[], startMs: number): Promise<void> {
     running = true
-    sigintCount = 0
 
     let currentPrompt   = prompt
     let currentHistory  = taskHistory
 
     try {
       while (true) {
-        sigintCount = 0  // reset per-iteration so user can always do soft+hard
 
         const { result, newHistory } = await engine.runTurn(currentPrompt, currentHistory)
 
@@ -407,7 +408,9 @@ async function runRepl(
         if (result.reason === 'interrupted') {
           // ── Soft interrupt: ask user for guidance, then resume ──
           renderer.writeInterruptPrompt()
+          awaitingInput = true
           const { text: feedback, eof } = await input.readLine('')
+          awaitingInput = false
 
           if (eof) {
             // Ctrl+D during interrupt prompt = hard exit

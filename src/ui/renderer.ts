@@ -497,7 +497,7 @@ export class Renderer {
 
   writeInterruptPrompt(): void {
     w(
-      `\n  ${FG.brightYellow}⚡ 任务已暂停${RESET} ${DIM}— 输入建议注入对话后继续，直接回车则恢复执行${RESET}\n` +
+      `\n  ${FG.brightYellow}⚡ 任务已暂停${RESET} ${DIM}— 输入建议后回车注入并继续，直接回车则静默恢复${RESET}\n` +
       `${FG.brightYellow}↳${RESET} `,
     )
   }
