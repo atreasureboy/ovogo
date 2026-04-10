@@ -496,9 +496,14 @@ export class Renderer {
   }
 
   writeInterruptPrompt(): void {
+    // \x07 = BEL — terminal bell to alert user
     w(
-      `\n  ${FG.brightYellow}⚡ 任务已暂停${RESET} ${DIM}— 输入建议后回车注入并继续，直接回车则静默恢复${RESET}\n` +
-      `${FG.brightYellow}↳${RESET} `,
+      `\x07\n` +
+      `${FG.brightYellow}${'─'.repeat(60)}${RESET}\n` +
+      `${FG.brightYellow}  ⚡ 任务已暂停${RESET}  ${BOLD}输入建议后按 Enter 注入并继续${RESET}\n` +
+      `${DIM}  直接按 Enter = 静默恢复  |  Ctrl+D = 终止${RESET}\n` +
+      `${FG.brightYellow}${'─'.repeat(60)}${RESET}\n` +
+      `${FG.brightYellow}▶${RESET} `,
     )
   }
 

@@ -364,11 +364,17 @@ async function runRepl(
   // ── ESC key: soft pause ───────────────────────────────────────
   // readline in terminal mode calls readline.emitKeypressEvents(stdin) internally,
   // so stdin already emits 'keypress' events by the time we get here.
+  // Debounce: only one soft abort per 800ms to prevent rapid repeated triggers.
+  let lastEscMs = 0
   process.stdin.on('keypress', (_str: unknown, key: { name?: string }) => {
     if (key?.name === 'escape' && running && !awaitingInput) {
+      const now = Date.now()
+      if (now - lastEscMs < 800) return
+      lastEscMs = now
       engine.softAbort()
       renderer.stopSpinner()
-      renderer.warn('⚡ 正在暂停... (当前工具执行完后暂停，然后可输入建议)')
+      process.stdout.write('\n')
+      renderer.warn('⚡ 正在暂停... 当前工具完成后停止，请稍候')
     }
   })
 

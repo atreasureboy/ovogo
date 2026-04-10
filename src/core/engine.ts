@@ -58,8 +58,10 @@ const CRITIC_SYSTEM_PROMPT = `你是一个渗透测试会话的批判性监督 a
 7. **防御者思维** — 输出了"建议的修复措施"/"建议修复"/"修复建议"/"应该修复"等内容，或建议目标方打补丁/加固配置，这是红队工具，只攻不守
 8. **提前终止扫描** — 后台扫描（nuclei/nmap/hydra）仍在 ps aux 中运行，却宣称"扫描完成"或进行最终总结，应继续等待并读取扫描结果
 9. **满足于信息泄露** — 发现目录列表/配置文件等低风险信息后就停止推进，未尝试利用这些信息进一步拿 shell（如从配置文件提取凭证、寻找可写路径、上传 webshell）
-10. **跳过 PoC validate** — 写入 poc.yaml 后直接执行 nuclei 扫描，没有先运行 nuclei -validate -t 检查模板格式，导致模板格式错误产生 0 输出而误以为无漏洞
+10. **poc_code 当 nuclei 模板** — 把 WeaponRadar 返回的 poc_code 写成 .yaml 文件然后 nuclei -t 执行，这几乎必然失败（格式不兼容）；正确做法是从 poc_code 提取 endpoint+payload，改写为 curl/python 手动测试
 11. **扫描未立即后台启动** — 任务开始几轮后还没有启动 nuclei 全量扫描/nmap 全端口扫描等长时间任务的后台进程，浪费了并行机会
+12. **发现漏洞不利用** — 确认漏洞存在（RCE/SQLi/文件上传）后只是 FindingWrite 就停止，没有继续利用执行命令、上传 webshell、读取 flag；靶场任务要求拿到 flag，不是写报告
+13. **没有找 flag** — 已经拿到命令执行权限（RCE/shell/webshell），但没有执行 find / -name flag* 或 cat /flag 等命令去寻找 flag 内容
 
 输出规则：
 - 发现问题：用 "⚠️ [问题] {描述}" + "↳ [纠正] {具体应执行什么}" 格式，最多 3 条
@@ -529,6 +531,26 @@ export class ExecutionEngine {
                 content: truncateToolResult(result.content),
                 name: tc.name,
               })
+
+              // ── Soft-interrupt check after each serial tool ──────
+              // Checked here (not just at iteration start) so ESC takes
+              // effect after the current tool, not after the full batch.
+              if (this.softAbortRequested) {
+                this.softAbortRequested = false
+                return {
+                  result: { stopped: true, reason: 'interrupted', output: finalOutput },
+                  newHistory: messages,
+                }
+              }
+            }
+          }
+
+          // ── Soft-interrupt check after each batch (parallel too) ─
+          if (this.softAbortRequested) {
+            this.softAbortRequested = false
+            return {
+              result: { stopped: true, reason: 'interrupted', output: finalOutput },
+              newHistory: messages,
             }
           }
         }
