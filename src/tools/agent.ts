@@ -42,12 +42,16 @@ const RED_TEAM_TYPES = new Set<AgentType>([
 ])
 
 // Injected at startup — avoids circular imports
-let _engineFactory: ((config: EngineConfig, renderer: unknown) => { runTurn: (msg: string, history: never[]) => Promise<{ result: { output: string; reason: string } }> }) | null = null
+type ChildEngine = {
+  runTurn: (msg: string, history: never[]) => Promise<{ result: { output: string; reason: string } }>
+  abort: () => void
+}
+let _engineFactory: ((config: EngineConfig, renderer: unknown) => ChildEngine) | null = null
 let _currentConfig: EngineConfig | null = null
 let _currentRenderer: unknown = null
 
 export function registerAgentFactory(
-  factory: typeof _engineFactory,
+  factory: ((config: EngineConfig, renderer: unknown) => ChildEngine),
   config: EngineConfig,
   renderer: unknown,
 ): void {
@@ -114,6 +118,16 @@ export async function runAgentTask(
   }
 
   const childEngine = _engineFactory(childConfig, childRenderer)
+
+  // Propagate parent abort signal to child engine so Ctrl+C cancels sub-agents too
+  if (context.signal) {
+    if (context.signal.aborted) {
+      mainRenderer.agentDone(description, false)
+      if (paneSlot) tmuxLayout.releaseSlot(paneSlot.slot)
+      return { content: `[${agentType}] 已取消（父任务中止）`, isError: true }
+    }
+    context.signal.addEventListener('abort', () => childEngine.abort(), { once: true })
+  }
 
   try {
     const { result } = await childEngine.runTurn(prompt, [])

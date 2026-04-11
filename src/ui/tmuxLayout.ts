@@ -187,6 +187,21 @@ export class TmuxLayout {
   isReady(): boolean {
     return this.initialized
   }
+
+  /**
+   * 清理：杀掉整个 tmux 会话（主进程退出时调用）。
+   * 这会终止所有子 agent 窗口内的 tail -f 进程。
+   * Best-effort — 失败不抛。
+   */
+  destroy(): void {
+    if (!this.initialized || !this.sessionName) return
+    try {
+      execSync(`tmux kill-session -t ${sq(this.sessionName)}`, { stdio: 'pipe' })
+    } catch { /* best-effort */ }
+    this.initialized = false
+    this.sessionName = ''
+    this.activeWindows = []
+  }
 }
 
 /** Singleton */

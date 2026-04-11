@@ -390,8 +390,10 @@ async function runRepl(
       renderer.warn('已取消。')
       running = false
     } else {
+      // 不在运行中：第二次 Ctrl+C = 真正退出（cleanup 由 process.on('exit') 处理）
       renderer.newline()
-      renderer.info('按 Ctrl+D 或输入 /exit 退出。')
+      renderer.info('Goodbye.')
+      process.exit(0)
     }
   })
 
@@ -688,8 +690,14 @@ async function main(): Promise<void> {
     renderer,
   )
 
-  // Cleanup MCP connections on exit
-  const cleanup = () => disconnectAll(mcpConnections).catch(() => {})
+  // Cleanup MCP connections + tmux session on exit
+  let cleanedUp = false
+  const cleanup = () => {
+    if (cleanedUp) return
+    cleanedUp = true
+    tmuxLayout.destroy()
+    disconnectAll(mcpConnections).catch(() => {})
+  }
   process.on('exit', cleanup)
   process.on('SIGTERM', () => { cleanup(); process.exit(0) })
 
