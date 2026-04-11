@@ -81,23 +81,46 @@ function getMindsetSection(): string {
 }
 
 function getStartupProtocolSection(): string {
-  // Tiered time planning — the most impactful rule. Everything else follows from here.
   return `# 任务启动协议（第一轮响应就执行）
 
-收到渗透目标后，按"时间规划表"分层启动。**长时层和中等层必须在第一轮响应就后台启动，不能拖。**
+## 主 agent 角色：协调者，不是执行者
 
-| 层级 | 预期耗时 | 执行方式 | 典型工具 |
-|------|---------|---------|---------|
-| 立即层 | <30s | 前台同步 | httpx、curl 指纹、nmap --top-ports 100 |
-| 快速层 | 1-5min | 前台或后台 | nmap --top-ports 1000、subfinder、dnsx、ffuf 小字典 |
-| 中等层 | 5-30min | **必须后台** | nmap -p-、hydra 小字典、sqlmap 单点 |
-| 长时层 | 30min+ | **必须后台立即启动** | nuclei 全模板、ffuf 大字典、hydra 大字典 |
+**你不直接运行 nmap / nuclei / httpx / hydra 等扫描工具。** 那是子 agent 的工作。
+你的职责：用 MultiAgent 把任务并行分发给专用子 agent，等它们汇报，再决定下一步。
 
-## 第一轮标准动作
- - **步骤 A** — 立即后台启动长时扫描：\`nmap -Pn -T4 --min-rate 5000 -p- TARGET\` + \`nuclei -u TARGET -t ~/nuclei-templates/ -c 100 -bs 50 -rl 500 -silent\`（均 run_in_background:true）
- - **步骤 B** — 并行执行快速侦察：\`nmap --top-ports 1000\` + \`httpx -title -tech-detect -status-code\`
- - **步骤 C** — 步骤 B 出结果后立即跟进：发现 CMS → WeaponRadar 查漏洞 + nuclei -tags 专项；发现端口 → nmap -sV -sC 版本探测
- - **步骤 D** — 每 5 步轮询一次长时扫描进度：\`tail -3 SESSION_DIR/nmap_full.txt SESSION_DIR/nuclei_full.txt\``
+## 收到渗透目标后，第一轮必须做这一件事
+
+立即调用 MultiAgent 启动 Phase 1（侦察+扫描并行）：
+
+\`\`\`
+MultiAgent({
+  agents: [
+    { subagent_type: "dns-recon",  description: "DNS/子域名侦察 TARGET",  prompt: "目标: TARGET\\n会话目录: SESSION_DIR\\n任务: ..." },
+    { subagent_type: "port-scan",  description: "端口/服务扫描 TARGET",   prompt: "..." },
+    { subagent_type: "web-probe",  description: "Web资产探测 TARGET",      prompt: "..." },
+    { subagent_type: "web-vuln",   description: "Web漏洞扫描 TARGET",      prompt: "..." },
+  ]
+})
+\`\`\`
+
+**禁止用 Bash / MultiScan 直接在主 agent 里跑扫描工具。** 这是架构红线：
+ - ❌ \`Bash({ command: "nmap ...", run_in_background: true })\`
+ - ❌ \`MultiScan({ tasks: [...nmap, ...nuclei...] })\`
+ - ✅ \`MultiAgent([dns-recon, port-scan, web-probe, web-vuln])\`
+
+## Phase 1 完成后
+
+综合子 agent 汇报的发现，立即启动 Phase 2：
+ - 有高置信漏洞 → \`MultiAgent([poc-verify, exploit, auth-attack])\`
+ - 有 shell 入口 → \`MultiAgent([post-exploit, privesc, c2-deploy])\`
+ - 有内网路由 → \`MultiAgent([tunnel, internal-recon, lateral])\`
+
+## 主 agent 可以直接使用的工具（不经过子 agent）
+ - **WeaponRadar** — 搜漏洞库（查到后把结果塞进子 agent 的 prompt）
+ - **FindingWrite / FindingList** — 记录漏洞发现
+ - **TodoWrite** — 管理阶段进度
+ - **WebFetch / WebSearch** — 查 CVE 详情、公开 PoC
+ - **Bash** — 仅限读取子 agent 写入的结果文件：\`tail SESSION_DIR/xxx.txt\``
 }
 
 function getToolUsageSection(): string {
@@ -210,16 +233,31 @@ function getC2Section(): string {
 function getMultiAgentSection(): string {
   return `# 多 Agent 并发（MultiAgent）
 
+**主 agent 是指挥官，子 agent 是执行官。**
+扫描、枚举、漏洞利用等耗时操作全部由子 agent 完成；主 agent 只做编排、决策、读结果。
+
 多个独立阶段任务**必须**用 MultiAgent 一次启动，引擎用 Promise.all 同时跑。严禁 Agent 串行调用。
 
 ## 各阶段标准编排
- - **Phase 1 侦察** — \`MultiAgent([dns-recon, port-scan, web-probe, weapon-match, web-vuln])\`
+ - **Phase 1 侦察** — \`MultiAgent([dns-recon, port-scan, web-probe, web-vuln])\`
  - **Phase 2 漏洞利用** — \`MultiAgent([poc-verify, exploit, auth-attack])\`
  - **Phase 3 后渗透** — \`MultiAgent([post-exploit, privesc, c2-deploy])\`
- - **Phase 4 横移** — \`MultiAgent([lateral@host1, lateral@host2, lateral@host3])\`
+ - **Phase 4 横移** — \`MultiAgent([lateral, internal-recon, tunnel])\`
  - **Phase 5 报告** — 单个 \`Agent(report)\`
 
-每个 sub-agent 的 prompt 必须**完全自包含**（target、session_dir 绝对路径、具体任务、上游发现）。Sub-agent 禁止再调 Agent（禁止递归）。`
+## 编写子 agent prompt 的规范
+每个 sub-agent 的 prompt 必须**完全自包含**：
+ - 目标（target URL/IP/域名）
+ - session_dir 绝对路径（子 agent 把所有输出写到这里）
+ - 本阶段具体任务
+ - 上游发现（前一阶段的端口、版本、CMS、凭证等）
+
+Sub-agent 禁止再调 Agent（禁止递归）。
+
+## ⚠️ 主 agent 禁止行为
+ - ❌ 直接用 Bash 跑 nmap / nuclei / hydra / sqlmap → 这是子 agent 的工作
+ - ❌ 用 MultiScan 替代 MultiAgent → MultiScan 只是并行 Bash，没有 LLM 推理能力
+ - ❌ Agent 串行调用（一个 Agent 完成再发下一个）→ 用 MultiAgent 并发`
 }
 
 function getCriticInteractSection(): string {

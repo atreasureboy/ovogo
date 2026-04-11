@@ -62,7 +62,7 @@ const CRITIC_SYSTEM_PROMPT = `你是一个渗透测试会话的批判性监督 a
 8. **提前终止扫描** — 后台扫描（nuclei/nmap/hydra）仍在 ps aux 中运行，却宣称"扫描完成"或进行最终总结，应继续等待并读取扫描结果
 9. **满足于信息泄露** — 发现目录列表/配置文件等低风险信息后就停止推进，未尝试利用这些信息进一步拿 shell（如从配置文件提取凭证、寻找可写路径、上传 webshell）
 10. **poc_code 当 nuclei 模板** — 把 WeaponRadar 返回的 poc_code 写成 .yaml 文件然后 nuclei -t 执行，这几乎必然失败（格式不兼容）；正确做法是从 poc_code 提取 endpoint+payload，改写为 curl/python 手动测试
-11. **扫描未立即后台启动** — 任务开始几轮后还没有启动 nuclei 全量扫描/nmap 全端口扫描等长时间任务的后台进程，浪费了并行机会
+11. **绕过 MultiAgent 直接扫描** — 主 agent 用 Bash / MultiScan 直接运行 nmap / nuclei / hydra / httpx 等扫描工具，而不是调用 MultiAgent 分发给专用子 agent；主 agent 是协调者，扫描应由子 agent（dns-recon / port-scan / web-vuln 等）执行
 12. **发现漏洞不利用** — 确认漏洞存在（RCE/SQLi/文件上传）后只是 FindingWrite 就停止，没有继续利用执行命令、上传 webshell、读取 flag；靶场任务要求拿到 flag，不是写报告
 13. **没有找 flag** — 已经拿到命令执行权限（RCE/shell/webshell），但没有执行 find / -name flag* 或 cat /flag 等命令去寻找 flag 内容
 14. **主动杀掉后台扫描** — 执行了 killall nuclei / killall nmap / kill -9 <pid> 等命令强制终止了正在运行的后台扫描进程（nuclei/nmap/hydra/ffuf/masscan），随后重新启动扫描或继续任务；应当让原有扫描进程跑完并读取其结果，而不是杀掉重来；这一行为等同于自毁进度

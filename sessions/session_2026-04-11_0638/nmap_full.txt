@@ -1,0 +1,40 @@
+# Nmap 7.94SVN scan initiated Sat Apr 11 06:39:55 2026 as: nmap -Pn -T4 --min-rate 5000 -p- -oN /project/ovogogogo/sessions/session_2026-04-11_0638/nmap_full.txt zhhovo.top
+Warning: 39.106.227.104 giving up on port because retransmission cap hit (6).
+Nmap scan report for zhhovo.top (39.106.227.104)
+Host is up (0.00014s latency).
+Not shown: 65528 filtered tcp ports (no-response)
+PORT      STATE SERVICE
+25/tcp    open  smtp
+9325/tcp  open  unknown
+12752/tcp open  unknown
+21237/tcp open  unknown
+36564/tcp open  unknown
+54670/tcp open  unknown
+63332/tcp open  unknown
+
+# Nmap done at Sat Apr 11 06:41:27 2026 -- 1 IP address (1 host up) scanned in 92.55 seconds
+6) => Operation not permitted
+Offending packet: TCP 172.19.0.1:46153 > 39.106.227.104:30100 S ttl=50 id=6885 iplen=44  seq=37709838 win=1024 <mss 1460>
+sendto in send_ip_packet_sd: sendto(4, packet, 44, 0, 39.106.227.104, 16) => Operation not permitted
+Offending packet: TCP 172.19.0.1:46149 > 39.106.227.104:40698 S ttl=38 id=57263 iplen=44  seq=37447690 win=1024 <mss 1460>
+sendto in send_ip_packet_sd: sendto(4, packet, 44, 0, 39.106.227.104, 16) => Operation not permitted
+Offending packet: TCP 172.19.0.1:46151 > 39.106.227.104:65367 S ttl=45 id=22308 iplen=44  seq=37316616 win=1024 <mss 1460>
+sendto in send_ip_packet_sd: sendto(4, packet, 44, 0, 39.106.227.104, 16) => Operation not permitted
+Offending packet: TCP 172.19.0.1:46153 > 39.106.227.104:43471 S ttl=44 id=25518 iplen=44  seq=37709838 win=1024 <mss 1460>
+sendto in send_ip_packet_sd: sendto(4, packet, 44, 0, 39.106.227.104, 16) => Operation not permitted
+Offending packet: TCP 172.19.0.1:46143 > 39.106.227.104:11980 S ttl=53 id=5964 iplen=44  seq=36792320 win=1024 <mss 1460>
+sendto in send_ip_packet_sd: sendto(4, packet, 44, 0, 39.106.227.104, 16) => Operation not permitted
+Offending packet: TCP 172.19.0.1:46143 > 39.106.227.104:49559 S ttl=44 id=51798 iplen=44  seq=36792320 win=1024 <mss 1460>
+Nmap scan report for zhhovo.top (39.106.227.104)
+Host is up (0.00014s latency).
+Not shown: 65528 filtered tcp ports (no-response)
+PORT      STATE SERVICE
+25/tcp    open  smtp
+9325/tcp  open  unknown
+12752/tcp open  unknown
+21237/tcp open  unknown
+36564/tcp open  unknown
+54670/tcp open  unknown
+63332/tcp open  unknown
+
+Nmap done: 1 IP address (1 host up) scanned in 92.55 seconds
