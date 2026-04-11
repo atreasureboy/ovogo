@@ -153,9 +153,7 @@ export class ToolCache {
       }
     }
     
-    if (deleted > 0) {
-      console.log(`Cleaned up ${deleted} expired cache entries`);
-    }
+    // Cleanup is silent — no stdout pollution needed for housekeeping
   }
 
   /**

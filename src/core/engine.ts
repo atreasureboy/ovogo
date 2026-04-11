@@ -169,6 +169,19 @@ const CONCURRENCY_SAFE_TOOLS = new Set([
 ])
 
 /**
+ * Tools whose results must never be cached.
+ * - State-mutating tools: always re-execute
+ * - Read/Glob/Grep: in a live pen-test environment files change after every Bash
+ *   write — a 5-minute stale read would silently return old content and confuse
+ *   the agent. Cache only truly static, expensive lookups (Web fetch, WeaponRadar).
+ */
+const NO_CACHE_TOOLS = new Set([
+  'Bash', 'ShellSession', 'TmuxSession', 'C2',
+  'Write', 'Edit', 'FileEdit', 'FindingWrite',
+  'Read', 'Glob', 'Grep',   // filesystem changes mid-session — never stale-serve
+])
+
+/**
  * Partition tool calls into batches for scheduling:
  * - All tools in CONCURRENCY_SAFE_TOOLS → merged into one parallel batch (Promise.all)
  * - Write / Edit / FindingWrite and other stateful tools → own serial batch
@@ -596,10 +609,6 @@ export class ExecutionEngine {
     }
 
     // Check cache first (skip for non-cacheable tools)
-    const NO_CACHE_TOOLS = new Set([
-      'Bash', 'ShellSession', 'TmuxSession', 'C2',
-      'Write', 'Edit', 'FileEdit', 'FindingWrite',
-    ])
     if (!NO_CACHE_TOOLS.has(toolName)) {
       const cachedResult = this.toolCache.get(toolName, input)
       if (cachedResult) {
@@ -615,10 +624,10 @@ export class ExecutionEngine {
 
     // Generate task ID for progress tracking
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    
+    // Declared outside try so catch block can reference it
+    const isLongRunningTool = ['Bash', 'MultiScan', 'WeaponRadar', 'WebSearch', 'C2'].includes(toolName)
+
     try {
-      // Start progress tracking for long-running tools
-      const isLongRunningTool = ['Bash', 'MultiScan', 'WeaponRadar', 'WebSearch', 'C2'].includes(toolName)
       if (isLongRunningTool) {
         this.progressTracker.start(taskId, toolName, input)
         this.renderer.info(`[Progress] Starting ${toolName} task ${taskId}`)
@@ -649,19 +658,16 @@ export class ExecutionEngine {
 
       // Cache the result (only for cacheable, successful, non-error results)
       if (!result.isError && !NO_CACHE_TOOLS.has(toolName)) {
-        let ttl = undefined
-        if (['WebFetch', 'WebSearch'].includes(toolName)) {
-          ttl = 1 * 60 * 60 * 1000
-        } else if (['Read', 'Glob', 'Grep'].includes(toolName)) {
-          ttl = 5 * 60 * 1000
-        }
+        const ttl = ['WebFetch', 'WebSearch'].includes(toolName)
+          ? 60 * 60 * 1000  // 1 hour for expensive web lookups
+          : undefined
         this.toolCache.set(toolName, input, result, ttl)
       }
 
       return result
     } catch (err: unknown) {
-      // Handle error in progress tracking
-      if (['Bash', 'MultiScan', 'WeaponRadar', 'WebSearch'].includes(toolName)) {
+      // Handle error in progress tracking — use the same isLongRunningTool flag
+      if (isLongRunningTool) {
         this.progressTracker.fail(taskId, (err as Error).message)
         this.renderer.error(`[Progress] ${toolName} failed: ${(err as Error).message}`)
       }

