@@ -45,7 +45,7 @@ import { buildFullSystemPrompt } from '../src/prompts/system.js'
 import { PriorityQueue } from '../src/core/priorityQueue.js'
 import { ProgressTracker } from '../src/core/progressTracker.js'
 import { ToolCache } from '../src/core/toolCache.js'
-import { tmuxLayout, tryAutoLaunchInTmux } from '../src/ui/tmuxLayout.js'
+import { tmuxLayout } from '../src/ui/tmuxLayout.js'
 
 const VERSION = '0.1.0'
 
@@ -569,13 +569,6 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  // ── 自动四宫格：如果当前不在 tmux 里，自动新建 tmux session 并在里面运行 ──
-  // 这样用户无论从哪里启动 ovogogogo，都能看到四宫格 UI
-  if (tryAutoLaunchInTmux()) {
-    // 已经 attach 并运行完成，退出外层进程
-    process.exit(0)
-  }
-
   const renderer = new Renderer()
   renderer.banner(VERSION, model)
   renderer.info(`cwd: ${cwd}`)
@@ -635,11 +628,11 @@ async function main(): Promise<void> {
   const sessionDir = createSessionDir(cwd, primaryTarget)
   renderer.info(`Session dir: ${sessionDir}`)
 
-  // Initialize tmux 4-pane layout for sub-agent monitoring (no-op if not in tmux)
+  // Initialize sub-agent tmux monitor (creates background tmux session for agent windows)
   const agentLogDir = join(sessionDir, 'agent-logs')
   const layoutReady = tmuxLayout.init(agentLogDir)
   if (layoutReady) {
-    renderer.info(`UI: 四宫格布局已就绪 — 子 agent 输出将显示在右侧/左下面板`)
+    renderer.info(`Agent 监控: ${tmuxLayout.sessionHint()}`)
   }
 
   // Build the full system prompt once (OVOGO.md + memory + engagement + sessionDir injected)

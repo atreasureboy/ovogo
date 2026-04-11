@@ -1,123 +1,72 @@
 /**
- * TmuxLayout — 4-pane grid layout for sub-agent monitoring
+ * TmuxLayout — Sub-agent tmux window manager
  *
- * Layout (用户视角):
- *   ┌─────────────────────┬─────────────────────┐
- *   │  ● OVOGO — Main     │  ○ Agent 0 — idle   │
- *   │                     │                     │
- *   ├─────────────────────┼─────────────────────┤
- *   │  ○ Agent 2 — idle   │  ○ Agent 1 — idle   │
- *   │                     │                     │
- *   └─────────────────────┴─────────────────────┘
+ * 架构：
+ *   - 主 agent 在普通终端运行（不进 tmux）
+ *   - 每个子 agent 获得一个独立的 tmux 窗口（window），在里面展示执行过程
+ *   - 用户可以新开终端执行 `tmux a -t <session>` 查看所有子 agent
+ *   - 各窗口实时 tail -f 子 agent 的日志文件，颜色/格式完整保留
  *
- * - 每个格子通过 tmux pane-border-status 显示标题
- * - Agent 格子运行 `tail -f agent-N.log`，实时显示 agent 输出
- * - Sub-agents 通过 Renderer.forFile() 写入对应日志文件
- * - 不在 tmux 时优雅降级（全部输出到主 stdout）
+ * 布局示意（tmux 会话内）：
+ *   [0: OVOGO-Status] [1: dns-recon] [2: port-scan] [3: web-vuln] ...
  *
- * 注意：tryAutoLaunchInTmux() 在 main() 最开头调用，确保用户始终在 tmux 里运行
+ * 降级：tmux 不可用或初始化失败时，子 agent 输出回落到主 stdout renderer
  */
 
 import { execSync, spawnSync } from 'child_process'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
-const MAX_AGENT_PANES = 3
-
-interface PaneSlot {
-  logFile: string
-  paneId: string
-  occupied: boolean
-  agentLabel: string
-}
-
 // ─────────────────────────────────────────────────────────────
-// Shell-safe single-quote escaping
+// Shell single-quote escape
 // ─────────────────────────────────────────────────────────────
 function sq(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`
 }
 
 // ─────────────────────────────────────────────────────────────
-// Auto-launch in tmux if not already inside one
+// 将 agent label 转为合法的 tmux 窗口名（≤20 chars, 无特殊符号）
 // ─────────────────────────────────────────────────────────────
-
-/**
- * If the current process is NOT inside tmux and stdin/stdout are a TTY,
- * spawn a new tmux session and re-exec the same Node.js command inside it.
- * Blocks until the tmux session ends (attach), then returns true so the
- * caller can exit(0).
- *
- * Returns false if tmux is unavailable, already in tmux, or not a TTY.
- */
-export function tryAutoLaunchInTmux(): boolean {
-  if (process.env.TMUX) return false              // already in tmux
-  if (!process.stdin.isTTY) return false          // pipe / script mode
-  if (!process.stdout.isTTY) return false         // not a real terminal
-
-  // Check tmux is installed
-  const check = spawnSync('tmux', ['-V'], { stdio: 'pipe' })
-  if (check.status !== 0) return false
-
-  // Reconstruct the command to run inside tmux
-  const nodeExe   = process.execPath              // e.g. /usr/bin/node
-  const script    = process.argv[1]               // e.g. dist/bin/ovogogogo.js
-  const extraArgs = process.argv.slice(2)
-
-  // Forward key environment variables into the tmux session
-  const envKeys = [
-    'OPENAI_API_KEY', 'OPENAI_BASE_URL',
-    'OVOGO_MODEL', 'OVOGO_MAX_ITER', 'OVOGO_CWD',
-    'PATH', 'HOME', 'USER', 'LOGNAME',
-    'TERM', 'COLORTERM', 'LANG', 'LC_ALL',
-    'GOPATH', 'GOROOT',
-  ]
-  const envFwd = envKeys
-    .filter(k => process.env[k] !== undefined)
-    .map(k => `${k}=${sq(process.env[k]!)}`)
-    .join(' ')
-
-  const parts = [envFwd, sq(nodeExe), sq(script), ...extraArgs.map(sq)]
-  const innerCmd = parts.filter(Boolean).join(' ')
-
-  const sessionName = `ovogo-${Date.now()}`
-  const W = process.stdout.columns || 220
-  const H = process.stdout.rows    || 50
-
-  try {
-    // Create a detached tmux session with the right dimensions
-    execSync(`tmux new-session -d -s ${sq(sessionName)} -x ${W} -y ${H}`)
-
-    // Run our command inside it
-    execSync(`tmux send-keys -t ${sq(sessionName)} ${JSON.stringify(innerCmd)} Enter`)
-
-    // Attach (blocks until session ends)
-    execSync(`tmux attach-session -t ${sq(sessionName)}`, { stdio: 'inherit' })
-
-    return true
-  } catch {
-    // If anything fails, fall through to normal mode
-    return false
-  }
+function toWindowName(label: string): string {
+  return label
+    .replace(/^\[([^\]]+)\]\s*/, '$1-')   // [dns-recon] xxx → dns-recon-xxx
+    .replace(/[^a-zA-Z0-9_\-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/, '')
+    .slice(0, 20)
 }
 
 // ─────────────────────────────────────────────────────────────
-// TmuxLayout — 4宫格管理
+// TmuxLayout
 // ─────────────────────────────────────────────────────────────
 
+interface AgentWindow {
+  slot: number
+  logFile: string
+  windowName: string
+  agentLabel: string
+}
+
 export class TmuxLayout {
-  private slots: PaneSlot[] = []
+  private sessionName = ''
+  private logDir = ''
   private initialized = false
-  private mainPaneId  = ''
+  private slotCounter = 0
+  private activeWindows: AgentWindow[] = []
 
   /**
-   * 在当前 tmux 窗口内创建四宫格布局。
-   * @param logDir  Agent 日志文件目录（session dir 下的 agent-logs/）
-   * @returns true 表示成功，false 表示非 tmux 或分屏失败（自动降级）
+   * 初始化：在后台创建一个独立的 tmux session，用于承载所有子 agent 窗口。
+   * 主进程不需要在 tmux 里。
+   *
+   * @param logDir 子 agent 日志目录
+   * @returns true = 成功，false = tmux 不可用或初始化失败
    */
   init(logDir: string): boolean {
-    if (!process.env.TMUX) return false
     if (this.initialized) return true
+
+    // 检查 tmux 是否可用
+    const check = spawnSync('tmux', ['-V'], { stdio: 'pipe' })
+    if (check.status !== 0) return false
 
     try {
       mkdirSync(logDir, { recursive: true })
@@ -125,124 +74,114 @@ export class TmuxLayout {
       return false
     }
 
+    this.logDir = logDir
+    this.sessionName = `ovogo-${Date.now()}`
+
     try {
-      // 记录主 pane ID
-      this.mainPaneId = execSync('tmux display-message -p "#{pane_id}"', { encoding: 'utf8' }).trim()
+      // 创建后台 tmux session（不 attach，不影响主终端）
+      execSync(
+        `tmux new-session -d -s ${sq(this.sessionName)} -x 200 -y 50`,
+        { stdio: 'pipe' },
+      )
 
-      // ── 创建右侧上格（top-right）
-      const p1 = execSync('tmux split-window -h -p 50 -P -F "#{pane_id}"', { encoding: 'utf8' }).trim()
+      // 重命名第一个窗口为状态总览
+      execSync(`tmux rename-window -t ${sq(this.sessionName + ':0')} 'OVOGO-Status'`)
 
-      // ── 右下格（bottom-right）：在 p1 上再拆
-      const p2 = execSync(`tmux split-window -v -p 50 -t ${sq(p1)} -P -F "#{pane_id}"`, { encoding: 'utf8' }).trim()
-
-      // ── 切回主格，创建左下格（bottom-left）
-      execSync(`tmux select-pane -t ${sq(this.mainPaneId)}`)
-      const p3 = execSync('tmux split-window -v -p 50 -P -F "#{pane_id}"', { encoding: 'utf8' }).trim()
-
-      // ── 焦点回到主格
-      execSync(`tmux select-pane -t ${sq(this.mainPaneId)}`)
-
-      // ── 开启 pane 边框标题（每个格子顶部显示名称）
-      execSync('tmux set-option -w pane-border-status top 2>/dev/null || true')
-      execSync([
-        'tmux set-option -w pane-border-format',
-        '" #[bold]#{?pane_active,#[fg=colour51],#[fg=colour240]}#{pane_title}#[default] "',
-      ].join(' ') + ' 2>/dev/null || true')
-
-      // ── 设置主格标题
-      execSync(`tmux select-pane -t ${sq(this.mainPaneId)} -T ${sq('● OVOGO — Main')}`)
-
-      const paneIds   = [p1, p2, p3]
-      const positions = ['右上 Agent 0', '右下 Agent 1', '左下 Agent 2']
-
-      for (let i = 0; i < MAX_AGENT_PANES; i++) {
-        const logFile = join(logDir, `agent-${i}.log`)
-        const paneId  = paneIds[i]
-        const label   = positions[i]
-
-        // 写入初始占位内容，使 tail -f 有内容可显示
-        writeFileSync(logFile,
-          `\x1b[2m${'─'.repeat(60)}\x1b[0m\n` +
-          `\x1b[2m  ${label} — 等待 agent 任务…\x1b[0m\n` +
-          `\x1b[2m${'─'.repeat(60)}\x1b[0m\n`,
-        )
-
-        // 设置 pane 标题
-        execSync(`tmux select-pane -t ${sq(paneId)} -T ${sq(`○ ${label} — idle`)}`)
-
-        // 在该格子里运行 tail -f
-        const tailCmd = `tail -f ${sq(logFile)}`
-        execSync(`tmux send-keys -t ${sq(paneId)} ${JSON.stringify(tailCmd)} Enter`)
-
-        this.slots.push({ logFile, paneId, occupied: false, agentLabel: '' })
-      }
+      // 在状态窗口写欢迎信息
+      const welcome = [
+        'clear',
+        `echo "\\033[1m\\033[95m${'═'.repeat(60)}\\033[0m"`,
+        `echo "\\033[1m\\033[95m  OVOGO — Sub-Agent Monitor\\033[0m"`,
+        `echo "\\033[2m  子 agent 窗口将在这里自动出现（Ctrl+B + 数字 切换）\\033[0m"`,
+        `echo "\\033[1m\\033[95m${'═'.repeat(60)}\\033[0m"`,
+      ].join(' && ')
+      execSync(`tmux send-keys -t ${sq(this.sessionName + ':0')} ${JSON.stringify(welcome)} Enter`)
 
       this.initialized = true
       return true
 
-    } catch (e) {
-      // 分屏失败 — 清空已创建的格子，优雅降级
-      this.slots = []
+    } catch {
+      this.sessionName = ''
       return false
     }
   }
 
   /**
-   * 为新 agent 分配一个空闲格子。
-   * 返回日志文件路径（传给 Renderer.forFile()），或 null（无空闲格子，降级到主 stdout）。
+   * 为新子 agent 创建一个 tmux 窗口，返回日志文件路径。
+   * 如果 tmux 不可用则返回 null（降级到主 renderer）。
    */
   acquireSlot(agentLabel: string): { slot: number; logFile: string } | null {
     if (!this.initialized) return null
 
-    for (let i = 0; i < this.slots.length; i++) {
-      if (!this.slots[i].occupied) {
-        this.slots[i].occupied   = true
-        this.slots[i].agentLabel = agentLabel
+    const slot = this.slotCounter++
+    const logFile = join(this.logDir, `agent-${slot}.log`)
+    const windowName = toWindowName(agentLabel) || `agent-${slot}`
 
-        // 更新 pane 标题为 "● [类型] 描述"
-        try {
-          const title = `● ${agentLabel.slice(0, 40)}`
-          execSync(`tmux select-pane -t ${sq(this.slots[i].paneId)} -T ${sq(title)}`)
-        } catch { /* best-effort */ }
+    // 写入 agent 启动 banner 到日志文件
+    const startBanner =
+      `\x1b[1m\x1b[95m${'═'.repeat(58)}\x1b[0m\n` +
+      `\x1b[1m\x1b[95m  ⎇  ${agentLabel}\x1b[0m\n` +
+      `\x1b[2m     Started: ${new Date().toLocaleTimeString()}\x1b[0m\n` +
+      `\x1b[1m\x1b[95m${'═'.repeat(58)}\x1b[0m\n`
+    try {
+      writeFileSync(logFile, startBanner)
+    } catch { /* best-effort */ }
 
-        // 在日志文件里写入 agent 启动 banner
-        const banner =
-          `\n\x1b[1m\x1b[95m${'═'.repeat(58)}\x1b[0m\n` +
-          `\x1b[1m\x1b[95m  ⎇  ${agentLabel}\x1b[0m\n` +
-          `\x1b[2m     ${new Date().toLocaleTimeString()}\x1b[0m\n` +
-          `\x1b[1m\x1b[95m${'═'.repeat(58)}\x1b[0m\n`
-        try { writeFileSync(this.slots[i].logFile, banner, { flag: 'a' }) } catch { /* best-effort */ }
+    try {
+      // 在 tmux session 里新建一个窗口
+      execSync(
+        `tmux new-window -t ${sq(this.sessionName)} -n ${sq(windowName)}`,
+        { stdio: 'pipe' },
+      )
 
-        return { slot: i, logFile: this.slots[i].logFile }
-      }
+      // 窗口内运行 tail -f 实时显示 agent 输出
+      const tailCmd = `tail -f ${sq(logFile)}`
+      execSync(
+        `tmux send-keys -t ${sq(this.sessionName + ':' + windowName)} ${JSON.stringify(tailCmd)} Enter`,
+        { stdio: 'pipe' },
+      )
+
+    } catch {
+      // 窗口创建失败，仍然返回 logFile 供 Renderer.forFile 使用
     }
-    return null
+
+    this.activeWindows.push({ slot, logFile, windowName, agentLabel })
+    return { slot, logFile }
   }
 
   /**
-   * Agent 完成后释放格子，重置为 idle。
+   * 子 agent 完成后标记窗口为 done（在日志结尾写入 footer，更新窗口名）。
    */
   releaseSlot(slot: number): void {
-    const s = this.slots[slot]
-    if (!s) return
+    const win = this.activeWindows.find(w => w.slot === slot)
+    if (!win) return
 
     // 写入完成 footer
     const footer =
       `\n\x1b[2m${'─'.repeat(58)}\x1b[0m\n` +
-      `\x1b[2m  ✓ "${s.agentLabel}" 已完成\x1b[0m\n` +
-      `\x1b[2m  等待下一个 agent 任务…\x1b[0m\n` +
+      `\x1b[32m  ✓ "${win.agentLabel}" 完成\x1b[0m\n` +
+      `\x1b[2m  ${new Date().toLocaleTimeString()}\x1b[0m\n` +
       `\x1b[2m${'─'.repeat(58)}\x1b[0m\n`
-    try { writeFileSync(s.logFile, footer, { flag: 'a' }) } catch { /* best-effort */ }
+    try { writeFileSync(win.logFile, footer, { flag: 'a' }) } catch { /* best-effort */ }
 
-    // 恢复 pane 标题为 idle
+    // 重命名窗口加 ✓ 标记
     try {
-      const idx   = this.slots.indexOf(s)
-      const names = ['右上 Agent 0', '右下 Agent 1', '左下 Agent 2']
-      execSync(`tmux select-pane -t ${sq(s.paneId)} -T ${sq(`○ ${names[idx]} — idle`)}`)
+      const doneWindowName = `✓-${win.windowName}`.slice(0, 20)
+      execSync(
+        `tmux rename-window -t ${sq(this.sessionName + ':' + win.windowName)} ${sq(doneWindowName)}`,
+        { stdio: 'pipe' },
+      )
     } catch { /* best-effort */ }
 
-    s.occupied   = false
-    s.agentLabel = ''
+    this.activeWindows = this.activeWindows.filter(w => w.slot !== slot)
+  }
+
+  /**
+   * 返回给用户看的提示：如何 attach 到子 agent 监控 session。
+   */
+  sessionHint(): string {
+    if (!this.initialized) return ''
+    return `tmux a -t ${this.sessionName}  (Ctrl+B + 数字 切换子 agent 窗口)`
   }
 
   isReady(): boolean {
@@ -250,5 +189,5 @@ export class TmuxLayout {
   }
 }
 
-/** Singleton — 在 agent.ts 和 ovogogogo.ts 中共用 */
+/** Singleton */
 export const tmuxLayout = new TmuxLayout()
