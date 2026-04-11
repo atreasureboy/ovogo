@@ -1,1 +1,33 @@
 # Nmap 7.94SVN scan initiated Sat Apr 11 05:49:35 2026 as: nmap --top-ports 1000 -oN /project/ovogogogo/sessions/session_2026-04-11_0549/nmap_top1000.txt zhhovo.top
+Warning: 39.106.227.104 giving up on port because retransmission cap hit (10).
+Nmap scan report for zhhovo.top (39.106.227.104)
+Host is up (0.00022s latency).
+Not shown: 989 filtered tcp ports (no-response)
+PORT    STATE SERVICE
+21/tcp  open  ftp
+22/tcp  open  ssh
+25/tcp  open  smtp
+113/tcp open  ident
+139/tcp open  netbios-ssn
+199/tcp open  smux
+256/tcp open  fw1-secureremote
+443/tcp open  https
+445/tcp open  microsoft-ds
+587/tcp open  submission
+993/tcp open  imaps
+
+# Nmap done at Sat Apr 11 06:53:44 2026 -- 1 IP address (1 host up) scanned in 3848.72 seconds
+VICE
+21/tcp  open  ftp
+22/tcp  open  ssh
+25/tcp  open  smtp
+113/tcp open  ident
+139/tcp open  netbios-ssn
+199/tcp open  smux
+256/tcp open  fw1-secureremote
+443/tcp open  https
+445/tcp open  microsoft-ds
+587/tcp open  submission
+993/tcp open  imaps
+
+Nmap done: 1 IP address (1 host up) scanned in 3848.72 seconds

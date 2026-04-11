@@ -170,15 +170,13 @@ function getStartupProtocolSection(): string {
 
 ## 收到渗透目标后，第一轮必须做这一件事
 
-立即调用 MultiAgent 启动 Phase 1（侦察+扫描并行）：
+立即调用 MultiAgent 启动 Phase 1（侦察+漏洞探测同时开始）：
 
 \`\`\`
 MultiAgent({
   agents: [
-    { subagent_type: "dns-recon",  description: "DNS/子域名侦察 TARGET",  prompt: "目标: TARGET\\n会话目录: SESSION_DIR\\n任务: ..." },
-    { subagent_type: "port-scan",  description: "端口/服务扫描 TARGET",   prompt: "..." },
-    { subagent_type: "web-probe",  description: "Web资产探测 TARGET",      prompt: "..." },
-    { subagent_type: "web-vuln",   description: "Web漏洞扫描 TARGET",      prompt: "..." },
+    { subagent_type: "recon",     description: "全方位侦察 TARGET",   prompt: "目标: TARGET\\n会话目录: SESSION_DIR\\n任务: 对目标进行 DNS/端口/Web/OSINT 全量侦察，将所有发现写入 SESSION_DIR/" },
+    { subagent_type: "vuln-scan", description: "漏洞全量扫描 TARGET", prompt: "目标: TARGET\\n会话目录: SESSION_DIR\\n任务: 立即对目标执行 Web/服务/认证 全量漏洞扫描，不等侦察结果，发现即写入 SESSION_DIR/" },
   ]
 })
 \`\`\`
@@ -186,13 +184,13 @@ MultiAgent({
 **禁止用 Bash / MultiScan 直接在主 agent 里跑扫描工具。** 这是架构红线：
  - ❌ \`Bash({ command: "nmap ...", run_in_background: true })\`
  - ❌ \`MultiScan({ tasks: [...nmap, ...nuclei...] })\`
- - ✅ \`MultiAgent([dns-recon, port-scan, web-probe, web-vuln])\`
+ - ✅ \`MultiAgent([recon, vuln-scan])\`
 
 ## Phase 1 完成后
 
 综合子 agent 汇报的发现，立即启动 Phase 2：
- - 有高置信漏洞 → \`MultiAgent([poc-verify, exploit, auth-attack])\`
- - 有 shell 入口 → \`MultiAgent([post-exploit, privesc, c2-deploy])\`
+ - 有高置信漏洞 → \`Agent(weapon-match)\` 检索 POC，然后 \`MultiAgent([manual-exploit, tool-exploit, c2-deploy])\`
+ - 有 shell 入口 → \`MultiAgent([target-recon, privesc])\`
  - 有内网路由 → \`MultiAgent([tunnel, internal-recon, lateral])\`
 
 ## 主 agent 可以直接使用的工具（不经过子 agent）
@@ -319,11 +317,13 @@ function getMultiAgentSection(): string {
 多个独立阶段任务**必须**用 MultiAgent 一次启动，引擎用 Promise.all 同时跑。严禁 Agent 串行调用。
 
 ## 各阶段标准编排
- - **Phase 1 侦察** — \`MultiAgent([dns-recon, port-scan, web-probe, web-vuln])\`
- - **Phase 2 漏洞利用** — \`MultiAgent([poc-verify, exploit, auth-attack])\`
- - **Phase 3 后渗透** — \`MultiAgent([post-exploit, privesc, c2-deploy])\`
- - **Phase 4 横移** — \`MultiAgent([lateral, internal-recon, tunnel])\`
- - **Phase 5 报告** — 单个 \`Agent(report)\`
+ - **Phase 1 侦察+漏洞探测** — \`MultiAgent([recon, vuln-scan])\`（开局必用，两者同时并行）
+ - **Phase 2 漏洞检索** — \`Agent(weapon-match)\`（基于侦察结果匹配 POC）
+ - **Phase 3 漏洞利用+C2** — \`MultiAgent([manual-exploit, tool-exploit, c2-deploy])\`
+ - **Phase 4 靶机操作** — \`MultiAgent([target-recon, privesc])\`
+ - **Phase 5 内网横移** — \`MultiAgent([tunnel, internal-recon, lateral])\`
+ - **Phase 6 Flag收集** — \`Agent(flag-hunter)\`
+ - **Phase 7 报告** — \`Agent(report)\`
 
 ## 编写子 agent prompt 的规范
 每个 sub-agent 的 prompt 必须**完全自包含**：

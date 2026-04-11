@@ -185,52 +185,55 @@ export class AgentTool implements Tool {
     type: 'function',
     function: {
       name: 'Agent',
-      description: `启动专用 sub-agent 并行执行聚焦任务。多个 Agent 调用在同一响应中会同时执行（Promise.all）。
+      description: `启动专用 sub-agent 执行聚焦任务。多个 Agent 调用在同一响应中并发执行（Promise.all）。
 
-## 红队专用 Agent 类型（推荐）
+## 红队 Agent 类型
 
-| 类型 | 职责 | 并行阶段 |
-|------|------|---------|
-| dns-recon | 子域名/DNS枚举（subfinder/dnsx/amass） | Phase 1 |
-| port-scan | 端口/服务扫描（nmap两步/masscan/naabu） | Phase 1 |
-| web-probe | Web资产探测（httpx/katana/gau/指纹） | Phase 1 |
-| weapon-match | 武器库匹配（WeaponRadar批量检索） | Phase 2 |
-| osint | OSINT情报收集（WebSearch/证书/GitHub） | Phase 2 |
-| web-vuln | Web漏洞扫描（nuclei HTTP/nikto/ffuf） | Phase 3 |
-| service-vuln | 服务层漏洞（nuclei网络层/nmap-vuln） | Phase 3 |
-| auth-attack | 认证攻击（hydra/kerbrute/默认凭证） | Phase 3 |
-| poc-verify | 验证具体漏洞PoC（每个高置信漏洞1个） | Phase 4 |
-| exploit | 漏洞利用→拿shell（RCE/文件上传/SQLi） | Phase 4 |
-| webshell | Webshell部署管理（PHP/JSP/ASPX） | Phase 4 |
-| post-exploit | 后渗透信息收集（凭证/内网/持久化） | Phase 5 |
-| privesc | 权限提升（SUID/sudo/内核/计划任务） | Phase 5 |
-| c2-deploy | Sliver beacon部署（生成/上传/执行） | Phase 5 |
-| tunnel | 内网穿透（chisel socks5代理） | Phase 6 |
-| internal-recon | 内网资产发现（proxychains+nmap/httpx） | Phase 6 |
-| lateral | 横向移动（MS17-010/PTH/凭证复用） | Phase 6 |
+### 一级 Agent（直接派给主agent）
+| 类型 | 职责 | 场景 |
+|------|------|------|
+| recon | 侦察总管（内部再分 dns-recon/port-scan/web-probe/osint） | 开局 Phase 1 |
+| vuln-scan | 漏洞探测总管（内部再分 web-vuln/service-vuln/auth-attack） | 开局 Phase 1 同时启动 |
+| weapon-match | POC库检索（基于侦察结果匹配漏洞） | Phase 2 |
+| manual-exploit | 手动漏洞利用（curl/python手工payload） | Phase 3 |
+| tool-exploit | 工具漏洞利用（MSF/sqlmap/searchsploit） | Phase 3 |
+| c2-deploy | C2部署（Metasploit/Sliver监听+payload生成） | Phase 3 同时启动 |
+| target-recon | 靶机信息收集（本机+内网情报） | Phase 4 拿到shell后 |
+| privesc | 权限提升（SUID/sudo/内核/计划任务） | Phase 4 |
+| tunnel | 内网穿透（chisel socks5代理） | Phase 5 |
+| internal-recon | 内网资产发现（proxychains+nmap/httpx） | Phase 5 |
+| lateral | 横向移动（MS17-010/PTH/凭证复用） | Phase 5 |
+| flag-hunter | 全面搜索并收集flag（ShellSession/C2/webshell） | 随时 |
 | report | 生成最终渗透测试报告 | Phase 7 |
 
-## 通用类型
-- general-purpose: 所有工具可用，复杂自定义任务
-- explore: 只读调查（Read/Glob/Grep）
-- plan: 分析+规划，不执行
-- code-reviewer: 代码安全审计
+### 二级 Agent（由 recon/vuln-scan 内部调用，也可直接使用）
+| 类型 | 职责 |
+|------|------|
+| dns-recon | 子域名/DNS枚举（subfinder/dnsx/amass） |
+| port-scan | 端口/服务扫描（nmap两步/masscan） |
+| web-probe | Web资产探测（httpx/katana/gau/指纹） |
+| osint | OSINT情报（WebSearch/证书/GitHub dork） |
+| web-vuln | Web漏洞扫描（nuclei HTTP/ffuf） |
+| service-vuln | 服务层漏洞（nmap-vuln/enum4linux） |
+| auth-attack | 认证攻击（hydra/kerbrute/默认凭证） |
 
-## 并行执行示例
-Phase 1 侦察（一次响应中同时调用3个）:
-  Agent(dns-recon, ...) + Agent(port-scan, ...) + Agent(web-probe, ...)
-  → 引擎用 Promise.all 同时运行，64核服务器完全支持
+### 通用类型
+- general-purpose: 所有工具可用，复杂自定义任务
+
+## 标准开局
+  Agent(recon, ...) + Agent(vuln-scan, ...)   ← 同时发出，并发执行
+  → 侦察和漏洞扫描同步进行，最大化时间利用
 
 ## 关键规则
-- prompt 必须完全自包含（包含 target、session_dir、具体任务）
-- sub-agent 不能再调用 Agent（禁止递归）
-- 每个 agent 独立写文件到 session_dir，结束时返回摘要`,
+- prompt 必须完全自包含（target、session_dir、具体任务、上游发现）
+- 叶子 agent 不能再调用 Agent（只有 recon/vuln-scan 这类编排型 agent 可以）
+- 每个 agent 写文件到 session_dir，结束时返回摘要`,
       parameters: {
         type: 'object',
         properties: {
           description: {
             type: 'string',
-            description: '子任务标签（显示在UI，如 "DNS侦察 zhhovo.top"）',
+            description: '任务标签（显示在UI，如 "侦察 zhhovo.top"）',
           },
           prompt: {
             type: 'string',
@@ -238,27 +241,30 @@ Phase 1 侦察（一次响应中同时调用3个）:
 1. 目标（target URL/IP/域名）
 2. session_dir（输出目录绝对路径）
 3. 具体任务（做什么、输出什么文件）
-4. 上下文（前一阶段的关键发现，如开放端口、技术栈）
+4. 上下文（前一阶段的关键发现）
 
-Sub-agent 没有父对话的上下文，所有信息必须在 prompt 中提供。`,
+Sub-agent 没有父对话上下文，所有信息必须在 prompt 中提供。`,
           },
           subagent_type: {
             type: 'string',
             enum: [
-              'dns-recon', 'port-scan', 'web-probe',
-              'weapon-match', 'osint',
-              'web-vuln', 'service-vuln', 'auth-attack', 'poc-verify',
-              'exploit', 'webshell',
-              'post-exploit', 'privesc', 'c2-deploy',
+              // 一级 agent（直接派给主agent）
+              'recon', 'vuln-scan', 'weapon-match',
+              'manual-exploit', 'tool-exploit', 'c2-deploy',
+              'target-recon', 'privesc',
               'tunnel', 'internal-recon', 'lateral',
-              'report',
+              'flag-hunter', 'report',
+              // 二级 agent（也可直接使用）
+              'dns-recon', 'port-scan', 'web-probe', 'osint',
+              'web-vuln', 'service-vuln', 'auth-attack',
+              // 通用
               'general-purpose', 'explore', 'plan', 'code-reviewer',
             ],
             description: 'Agent 类型（默认 general-purpose）',
           },
           max_iterations: {
             type: 'number',
-            description: '最大执行轮数（每种类型有合理默认值，可覆盖，最大 100）',
+            description: '最大执行轮数（各类型有合理默认值，可覆盖，最大 200）',
           },
         },
         required: ['description', 'prompt'],

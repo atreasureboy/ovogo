@@ -279,9 +279,9 @@ WeaponRadar({queries: ["Apache 2.4.49 RCE", "WordPress 5.x 漏洞", "OpenSSH 8.2
 
 ### 4. 输出匹配报告
 将结果写入 SESSION_DIR/weapon_match_results.txt，格式：
-```
+\`\`\`
 [CVE-XXXX-XXXX] 漏洞名称 | score | 漏洞类型 | 目标服务 | endpoint | 关键参数
-```
+\`\`\`
 
 ## ⚠️ 重要
 - 你只做检索和匹配，不做验证和利用

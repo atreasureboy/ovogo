@@ -3,6 +3,26 @@
 [wordpress-wp-fastest-cache:detected_version] [http] [info] https://zhhovo.top/wp-content/plugins/wp-fastest-cache/readme.txt ["1.4.0"] [last_version="1.3.8"]
 [ssh-cbc-mode-ciphers] [javascript] [low] zhhovo.top:22
 [mDNS-enum] [javascript] [low] zhhovo.top:5353
- [[94mhttp[0m] [[34minfo[0m] https://zhhovo.top/wp-content/plugins/wp-fastest-cache/readme.txt [[96m"1.4.0"[0m] [[93mlast_version[0m=[93m"1.3.8"[0m]
-[[92mssh-cbc-mode-ciphers[0m] [[94mjavascript[0m] [[32mlow[0m] zhhovo.top:22
-[[92mmDNS-enum[0m] [[94mjavascript[0m] [[32mlow[0m] zhhovo.top:5353
+[zeroconf-detect] [javascript] [info] zhhovo.top:5353
+[deprecated-tls:tls_1.1] [ssl] [info] zhhovo.top:443 ["tls11"]
+[tls-version] [ssl] [info] zhhovo.top:443 ["tls10"]
+[tls-version] [ssl] [info] zhhovo.top:443 ["tls11"]
+[deprecated-tls:tls_1.0] [ssl] [info] zhhovo.top:443 ["tls10"]
+[tls-version] [ssl] [info] zhhovo.top:443 ["tls12"]
+[tls-version] [ssl] [info] zhhovo.top:443 ["tls13"]
+[weak-cipher-suites:tls-1.0] [ssl] [low] zhhovo.top:443 ["[tls10 TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA]"]
+[weak-cipher-suites:tls-1.1] [ssl] [low] zhhovo.top:443 ["[tls11 TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA]"]
+[wordpress-readme-file] [http] [info] https://zhhovo.top/readme.html
+[wp-license-file] [http] [info] https://zhhovo.top/license.txt
+[nameserver-fingerprint] [dns] [info] zhhovo.top ["dns32.hichina.com.","dns31.hichina.com."]
+[caa-fingerprint] [dns] [info] zhhovo.top
+[ssl-issuer] [ssl] [info] zhhovo.top:443 ["Let's Encrypt"]
+[ssl-dns-names] [ssl] [info] zhhovo.top:443 ["www.zhhovo.top","zhhovo.top"]
+m:[1;92mtls-1.0[0m] [[94mssl[0m] [[32mlow[0m] zhhovo.top:443 [[96m"[tls10 TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA]"[0m]
+[[92mweak-cipher-suites[0m:[1;92mtls-1.1[0m] [[94mssl[0m] [[32mlow[0m] zhhovo.top:443 [[96m"[tls11 TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA]"[0m]
+[[92mwordpress-readme-file[0m] [[94mhttp[0m] [[34minfo[0m] https://zhhovo.top/readme.html
+[[92mwp-license-file[0m] [[94mhttp[0m] [[34minfo[0m] https://zhhovo.top/license.txt
+[[92mnameserver-fingerprint[0m] [[94mdns[0m] [[34minfo[0m] zhhovo.top [[96m"dns32.hichina.com."[0m,[96m"dns31.hichina.com."[0m]
+[[92mcaa-fingerprint[0m] [[94mdns[0m] [[34minfo[0m] zhhovo.top
+[[92mssl-issuer[0m] [[94mssl[0m] [[34minfo[0m] zhhovo.top:443 [[96m"Let's Encrypt"[0m]
+[[92mssl-dns-names[0m] [[94mssl[0m] [[34minfo[0m] zhhovo.top:443 [[96m"www.zhhovo.top"[0m,[96m"zhhovo.top"[0m]

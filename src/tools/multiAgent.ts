@@ -5,12 +5,11 @@
  * 类似 MultiScan 之于 Bash，MultiAgent 把所有 agent 放进一次工具调用，
  * 引擎用 Promise.all 同时运行它们。
  *
- * 用法示例（Phase 1 侦察）：
+ * 用法示例（Phase 1 侦察+漏洞探测并行）：
  *   MultiAgent({
  *     agents: [
- *       { subagent_type: "dns-recon",  description: "DNS侦察", prompt: "..." },
- *       { subagent_type: "port-scan",  description: "端口扫描", prompt: "..." },
- *       { subagent_type: "web-probe",  description: "Web探测", prompt: "..." },
+ *       { subagent_type: "recon",     description: "侦察 TARGET",     prompt: "..." },
+ *       { subagent_type: "vuln-scan", description: "漏洞探测 TARGET", prompt: "..." },
  *     ]
  *   })
  */
@@ -43,20 +42,19 @@ export class MultiAgentTool implements Tool {
 
 ## 推荐使用场景
 
-**Phase 1 侦察（3并行）**
-MultiAgent([dns-recon, port-scan, web-probe])
+**Phase 1 侦察+漏洞探测（2并行，开局必用）**
+MultiAgent([recon, vuln-scan])
+  → recon 内部再分派: dns-recon / port-scan / web-probe / osint
+  → vuln-scan 内部再分派: web-vuln / service-vuln / auth-attack
 
-**Phase 2 情报（2并行）**
-MultiAgent([weapon-match, osint])
+**Phase 3 漏洞利用+C2（3并行）**
+MultiAgent([manual-exploit, tool-exploit, c2-deploy])
 
-**Phase 3 漏洞扫描（3并行）**
-MultiAgent([web-vuln, service-vuln, auth-attack])
+**Phase 4 靶机操作（2并行）**
+MultiAgent([target-recon, privesc])
 
-**Phase 4 验证+利用（N并行）**
-MultiAgent([poc-verify, exploit, webshell])
-
-**Phase 5 后渗透（3并行）**
-MultiAgent([post-exploit, privesc, c2-deploy])
+**Phase 5 内网横移（3并行）**
+MultiAgent([tunnel, internal-recon, lateral])
 
 ## 每个 agent 的 prompt 必须完全自包含（包含 target、session_dir、前阶段上下文）`,
       parameters: {
@@ -71,13 +69,16 @@ MultiAgent([post-exploit, privesc, c2-deploy])
                 subagent_type: {
                   type: 'string',
                   enum: [
-                    'dns-recon', 'port-scan', 'web-probe',
-                    'weapon-match', 'osint',
-                    'web-vuln', 'service-vuln', 'auth-attack', 'poc-verify',
-                    'exploit', 'webshell',
-                    'post-exploit', 'privesc', 'c2-deploy',
+                    // 一级 agent（直接派给主agent）
+                    'recon', 'vuln-scan', 'weapon-match',
+                    'manual-exploit', 'tool-exploit', 'c2-deploy',
+                    'target-recon', 'privesc',
                     'tunnel', 'internal-recon', 'lateral',
-                    'report',
+                    'flag-hunter', 'report',
+                    // 二级 agent（也可直接使用）
+                    'dns-recon', 'port-scan', 'web-probe', 'osint',
+                    'web-vuln', 'service-vuln', 'auth-attack',
+                    // 通用
                     'general-purpose', 'explore', 'plan', 'code-reviewer',
                   ],
                   description: 'Agent 类型（默认 general-purpose）',
