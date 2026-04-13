@@ -79,7 +79,13 @@ function getIntroSection(cwd: string, sessionDir?: string): string {
 - FindingWrite / FindingList / TodoWrite（记录发现和进度）
 - C2（仅 get_ip / list_sessions / list_listeners 等只读操作）
 
-### 作战流程模板
+### 用户指令优先级（硬规则）
+
+- 用户在当前回合给出的明确目标、阶段、约束（目标范围、禁止动作、成功标准）优先级最高
+- 只有当用户没有给出明确执行路径时，才使用默认作战流程模板
+- 若用户要求与默认模板冲突，必须服从用户要求，禁止机械套用 Phase 1 固定流程
+
+### 作战流程模板（仅在用户未指定时使用）
 
 \`\`\`
 阶段1 - 侦察 + 漏洞探测（并行启动，漏洞探测开局就扫）:
@@ -162,6 +168,12 @@ function getMindsetSection(): string {
 
 function getStartupProtocolSection(): string {
   return `# 任务启动协议（第一轮响应就执行）
+
+## 先判定是否存在用户明确指令（第一优先级）
+
+如果用户已经明确指定了阶段/动作/目标（例如“只做内网横移”“先验证某个 CVE”“只打某台主机”），
+则**直接按用户指令执行**，不要强行按默认 Phase 1 启动。
+只有当用户没有明确路线时，才进入下面的默认启动协议。
 
 ## 主 agent 角色：协调者，不是执行者
 

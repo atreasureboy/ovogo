@@ -81,7 +81,7 @@ MultiAgent([tunnel, internal-recon, lateral])
                     // 通用
                     'general-purpose', 'explore', 'plan', 'code-reviewer',
                   ],
-                  description: 'Agent 类型（默认 general-purpose）',
+                  description: 'Agent 类型（协调者模式下禁止 general-purpose/explore/plan/code-reviewer）',
                 },
                 description: {
                   type: 'string',
@@ -113,6 +113,16 @@ MultiAgent([tunnel, internal-recon, lateral])
     }
     if (specs.length === 1) {
       return { content: 'Warning: MultiAgent 只收到 1 个 agent，建议直接用 Agent 工具', isError: false }
+    }
+
+    for (let i = 0; i < specs.length; i++) {
+      const spec = specs[i]
+      if (!spec.description || !spec.description.trim()) {
+        return { content: `Error: agents[${i}].description 不能为空`, isError: true }
+      }
+      if (!spec.prompt || !spec.prompt.trim()) {
+        return { content: `Error: agents[${i}].prompt 不能为空`, isError: true }
+      }
     }
 
     // Run all agents in parallel

@@ -78,12 +78,22 @@ function tryParse(path: string): OvogoSettings {
 }
 
 function mergeSettings(a: OvogoSettings, b: OvogoSettings): OvogoSettings {
+  const mergedEngagement = b.engagement
+    ? {
+        ...(a.engagement ?? {}),
+        ...b.engagement,
+        targets: b.engagement.targets ?? a.engagement?.targets,
+        out_of_scope: b.engagement.out_of_scope ?? a.engagement?.out_of_scope,
+      }
+    : a.engagement
+
   return {
     hooks: {
       PreToolCall: [...(a.hooks?.PreToolCall ?? []), ...(b.hooks?.PreToolCall ?? [])],
       PostToolCall: [...(a.hooks?.PostToolCall ?? []), ...(b.hooks?.PostToolCall ?? [])],
       UserPromptSubmit: [...(a.hooks?.UserPromptSubmit ?? []), ...(b.hooks?.UserPromptSubmit ?? [])],
     },
+    engagement: mergedEngagement,
   }
 }
 

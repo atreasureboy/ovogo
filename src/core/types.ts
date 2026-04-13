@@ -116,6 +116,14 @@ export interface EngineConfig {
   hookRunner?: IHookRunner
   /** Session output directory — injected into sub-agent prompts */
   sessionDir?: string
+  /** Primary engagement target (usually the first configured target) */
+  primaryTarget?: string
+  /** All in-scope targets from engagement config */
+  engagementTargets?: string[]
+  /** Out-of-scope targets from engagement config */
+  outOfScopeTargets?: string[]
+  /** Current engagement phase */
+  engagementPhase?: string
   /** Priority queue for tool execution */
   priorityQueue?: import('./priorityQueue.js').PriorityQueue
   /** Progress tracker for long-running tools */

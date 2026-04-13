@@ -12,6 +12,8 @@ import { getAgentTypeSystemPrompt } from '../prompts/system.js'
 import { getRedTeamAgentPrompt, type RedTeamAgentType } from '../prompts/agentPrompts.js'
 import { Renderer } from '../ui/renderer.js'
 import { tmuxLayout } from '../ui/tmuxLayout.js'
+import { appendFileSync } from 'fs'
+import { join } from 'path'
 
 // Generic legacy types (kept for backward-compat)
 type LegacyAgentType = 'general-purpose' | 'explore' | 'plan' | 'code-reviewer'
@@ -49,6 +51,36 @@ type ChildEngine = {
 let _engineFactory: ((config: EngineConfig, renderer: unknown) => ChildEngine) | null = null
 let _currentConfig: EngineConfig | null = null
 let _currentRenderer: unknown = null
+const AGENT_EVENT_LOG_FILE = 'agent_events.ndjson'
+
+function normalizeDelegatedPrompt(prompt: string, config: EngineConfig): string {
+  let normalized = prompt
+  if (config.sessionDir) {
+    normalized = normalized
+      .replace(/\bSESSION_DIR\b/g, config.sessionDir)
+      .replace(/\/SESSION\b/g, config.sessionDir)
+  }
+  if (config.primaryTarget) {
+    normalized = normalized
+      .replace(/\bTARGET\b/g, config.primaryTarget)
+      .replace(/\{\{TARGET\}\}/g, config.primaryTarget)
+  }
+  return normalized
+}
+
+function appendAgentEvent(config: EngineConfig, event: Record<string, unknown>): void {
+  if (!config.sessionDir) return
+  const logPath = join(config.sessionDir, AGENT_EVENT_LOG_FILE)
+  const payload = {
+    ts: new Date().toISOString(),
+    ...event,
+  }
+  try {
+    appendFileSync(logPath, JSON.stringify(payload) + '\n', 'utf8')
+  } catch {
+    // best-effort audit logging; never break execution on log failure
+  }
+}
 
 export function registerAgentFactory(
   factory: ((config: EngineConfig, renderer: unknown) => ChildEngine),
@@ -122,6 +154,46 @@ export async function runAgentTask(
 
   const childEngine = _engineFactory(childConfig, childRenderer)
 
+  const normalizedPrompt = normalizeDelegatedPrompt(prompt, _currentConfig)
+  const placeholdersReplaced = normalizedPrompt !== prompt
+  const inheritedContextLines = [
+    `- primary_target: ${_currentConfig.primaryTarget ?? '未设置'}`,
+    `- session_dir: ${_currentConfig.sessionDir ?? '未设置'}`,
+    `- phase: ${_currentConfig.engagementPhase ?? '未设置'}`,
+    `- in_scope_targets: ${_currentConfig.engagementTargets?.join(', ') ?? '未设置'}`,
+    `- out_of_scope_targets: ${_currentConfig.outOfScopeTargets?.join(', ') ?? '未设置'}`,
+  ]
+
+  const sessionDirHint = _currentConfig.sessionDir
+    ? `\n- 会话目录固定为: ${_currentConfig.sessionDir}`
+    : ''
+  const delegatedPrompt = [
+    '[任务委派契约]',
+    '- 严格执行下方“子任务指令”，不得擅自替换目标或阶段。',
+    '- 若用户/主agent给了明确范围与约束，以该指令为最高优先级。',
+    '- 若信息缺失导致无法执行（例如没有目标），先报告缺失并请求补充，不要自行假设。',
+    '- 如果子任务中仍出现占位符（TARGET/SESSION_DIR），优先使用下面“继承上下文”中的值。',
+    sessionDirHint,
+    '',
+    '[继承上下文]',
+    ...inheritedContextLines,
+    '',
+    '[子任务描述]',
+    description,
+    '',
+    '[子任务指令]',
+    normalizedPrompt,
+  ].join('\n')
+
+  appendAgentEvent(_currentConfig, {
+    event: 'delegation.start',
+    agent_type: agentType,
+    description,
+    max_iterations: maxIterations,
+    placeholders_replaced: placeholdersReplaced,
+    prompt_preview: normalizedPrompt.slice(0, 500),
+  })
+
   // Propagate parent abort signal to child engine so Ctrl+C cancels sub-agents too
   if (context.signal) {
     if (context.signal.aborted) {
@@ -143,11 +215,20 @@ export async function runAgentTask(
   }, HEARTBEAT_MS)
 
   try {
-    const { result } = await childEngine.runTurn(prompt, [])
+    const { result } = await childEngine.runTurn(delegatedPrompt, [])
     clearInterval(heartbeatTimer)
+    const durationMs = Date.now() - agentStartTime
 
     mainRenderer.agentDone(description, result.reason !== 'error')
     if (paneSlot) tmuxLayout.releaseSlot(paneSlot.slot)
+    appendAgentEvent(_currentConfig, {
+      event: 'delegation.done',
+      agent_type: agentType,
+      description,
+      success: result.reason !== 'error',
+      reason: result.reason,
+      duration_ms: durationMs,
+    })
 
     if (!result.output) {
       return {
@@ -175,6 +256,14 @@ export async function runAgentTask(
     clearInterval(heartbeatTimer)
     mainRenderer.agentDone(description, false)
     if (paneSlot) tmuxLayout.releaseSlot(paneSlot.slot)
+    appendAgentEvent(_currentConfig, {
+      event: 'delegation.error',
+      agent_type: agentType,
+      description,
+      success: false,
+      duration_ms: Date.now() - agentStartTime,
+      error: (err as Error).message,
+    })
     return {
       content: `[${agentType}] "${description}" 异常: ${(err as Error).message}`,
       isError: true,
@@ -267,11 +356,11 @@ export class AgentTool implements Tool {
 | service-vuln | 服务层漏洞（nmap-vuln/enum4linux） |
 | auth-attack | 认证攻击（hydra/kerbrute/默认凭证） |
 
-### 通用类型
-- general-purpose: 所有工具可用，复杂自定义任务
+### 通用类型（仅子agent内部或兼容模式）
+- general-purpose: 所有工具可用，复杂自定义任务（主agent协调者模式下禁止使用）
 
-## 标准开局
-  Agent(recon, ...) + Agent(vuln-scan, ...)   ← 同时发出，并发执行
+## 标准开局（主agent）
+  MultiAgent([recon, vuln-scan])   ← 一次调用并行启动
   → 侦察和漏洞扫描同步进行，最大化时间利用
 
 ## 关键规则
@@ -315,6 +404,10 @@ Sub-agent 没有父对话上下文，所有信息必须在 prompt 中提供。`,
           max_iterations: {
             type: 'number',
             description: '最大执行轮数（各类型有合理默认值，可覆盖，最大 200）',
+          },
+          serial_reason: {
+            type: 'string',
+            description: '仅在必须串行时填写依赖原因（例如“必须等待阶段N输出后才能执行”）',
           },
         },
         required: ['description', 'prompt'],

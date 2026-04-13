@@ -168,6 +168,22 @@ const COORDINATOR_ALLOWED_TOOLS = new Set([
 ])
 
 /**
+ * In coordinator mode, these agent types should be launched in parallel via MultiAgent
+ * unless there is an explicit serial dependency reason.
+ */
+const PARALLEL_FIRST_AGENT_TYPES = new Set([
+  'recon', 'vuln-scan',
+  'manual-exploit', 'tool-exploit', 'c2-deploy',
+  'target-recon', 'privesc',
+  'tunnel', 'internal-recon', 'lateral',
+])
+
+/** Coordinator must not delegate core work to generic helper agents. */
+const FORBIDDEN_COORDINATOR_AGENT_TYPES = new Set([
+  'general-purpose', 'explore', 'plan', 'code-reviewer',
+])
+
+/**
  * Concurrency-safe tools: run in parallel within a single LLM response.
  *
  * Rule: if the LLM emits multiple tool calls in one response, it intends them
@@ -662,6 +678,15 @@ export class ExecutionEngine {
         isError: true,
       }
     }
+    if (coordinatorMode) {
+      const violation = this.getCoordinatorDelegationViolation(toolName, input)
+      if (violation) {
+        return {
+          content: `⛔ 协调者委派策略：${violation}`,
+          isError: true,
+        }
+      }
+    }
 
     // Check cache first (skip for non-cacheable tools)
     if (!NO_CACHE_TOOLS.has(toolName)) {
@@ -809,5 +834,44 @@ export class ExecutionEngine {
     }
 
     return `${suggestion.reason}。请用 MultiAgent/Agent 启动 ${suggestion.type} 子agent。`
+  }
+
+  /**
+   * Additional delegation policy in coordinator mode.
+   * Goal: force the main agent to orchestrate specialized parallel workers,
+   * not funnel work into one generic sub-agent.
+   */
+  private getCoordinatorDelegationViolation(
+    toolName: string,
+    input: Record<string, unknown>,
+  ): string | null {
+    if (toolName === 'Agent') {
+      const agentType = String(input.subagent_type ?? 'general-purpose')
+      const serialReason = String(input.serial_reason ?? '').trim()
+
+      if (FORBIDDEN_COORDINATOR_AGENT_TYPES.has(agentType)) {
+        return `主agent禁止委派 ${agentType} 这类泛化子agent。请使用专用红队子agent（如 recon / vuln-scan / manual-exploit / lateral / flag-hunter）。`
+      }
+
+      if (PARALLEL_FIRST_AGENT_TYPES.has(agentType) && serialReason.length < 8) {
+        return `阶段型任务 ${agentType} 默认必须并行编排。请改为 MultiAgent 一次启动多个子agent；若确有强依赖需串行，请在 Agent 调用中提供 serial_reason 说明依赖原因。`
+      }
+    }
+
+    if (toolName === 'MultiAgent') {
+      const specs = input.agents
+      if (!Array.isArray(specs) || specs.length === 0) return null
+
+      for (const raw of specs) {
+        if (!raw || typeof raw !== 'object') continue
+        const spec = raw as Record<string, unknown>
+        const agentType = String(spec.subagent_type ?? 'general-purpose')
+        if (FORBIDDEN_COORDINATOR_AGENT_TYPES.has(agentType)) {
+          return `MultiAgent 中禁止包含 ${agentType}。请改为专用红队子agent类型。`
+        }
+      }
+    }
+
+    return null
   }
 }

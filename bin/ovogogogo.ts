@@ -62,6 +62,38 @@ interface Args {
   version: boolean
 }
 
+const MAX_RECENT_HISTORY_MESSAGES = 120
+const MAX_PINNED_USER_MESSAGES = 12
+
+function trimHistoryForNextTurn(messages: OpenAIMessage[]): OpenAIMessage[] {
+  if (messages.length <= MAX_RECENT_HISTORY_MESSAGES) return [...messages]
+
+  const keepIndexes = new Set<number>()
+  const recentStart = Math.max(0, messages.length - MAX_RECENT_HISTORY_MESSAGES)
+
+  for (let i = recentStart; i < messages.length; i++) {
+    keepIndexes.add(i)
+  }
+
+  const pinnedUserIndexes = messages
+    .map((msg, idx) => ({ msg, idx }))
+    .filter(({ msg }) => {
+      if (msg.role !== 'user' || typeof msg.content !== 'string') return false
+      // Skip synthetic compaction summaries; keep real user instructions.
+      return !msg.content.startsWith('[CONVERSATION SUMMARY')
+    })
+    .slice(-MAX_PINNED_USER_MESSAGES)
+    .map(({ idx }) => idx)
+
+  for (const idx of pinnedUserIndexes) {
+    keepIndexes.add(idx)
+  }
+
+  return Array.from(keepIndexes)
+    .sort((a, b) => a - b)
+    .map((idx) => messages[idx])
+}
+
 function parseArgs(argv: string[]): Args {
   const args = argv.slice(2)
   let task: string | undefined
@@ -235,7 +267,7 @@ async function runPlanMode(
     try {
       const { result, newHistory } = await engine.runTurn(task, history)
       history.length = 0
-      history.push(...newHistory.slice(-40))
+      history.push(...trimHistoryForNextTurn(newHistory))
       const elapsed = ((Date.now() - startMs) / 1000).toFixed(1)
       renderer.info(`Done in ${elapsed}s · ${result.reason}`)
     } catch (err: unknown) {
@@ -414,7 +446,7 @@ async function runRepl(
 
         // Update shared history with latest turn
         history.length = 0
-        history.push(...newHistory.slice(-40))
+        history.push(...trimHistoryForNextTurn(newHistory))
         currentHistory = [...history]
 
         if (result.reason === 'interrupted') {
@@ -669,6 +701,10 @@ async function main(): Promise<void> {
     hookRunner,
     systemPrompt,
     sessionDir,   // injected into sub-agent prompts via registerAgentFactory
+    primaryTarget,
+    engagementTargets: engagement?.targets,
+    outOfScopeTargets: engagement?.out_of_scope,
+    engagementPhase: engagement?.phase,
     priorityQueue,
     progressTracker,
     toolCache,
