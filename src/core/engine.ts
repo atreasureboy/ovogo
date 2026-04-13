@@ -32,7 +32,7 @@ import type {
 import { createTools, findTool, getToolDefinitions } from '../tools/index.js'
 import { getPlanModePrefix } from '../prompts/system.js'
 import type { Renderer } from '../ui/renderer.js'
-import { maybeCompact, estimateTokens, COMPACT_THRESHOLD_TOKENS } from './compact.js'
+import { maybeCompact, calculateContextState, MODEL_MAX_CONTEXT_TOKENS } from './compact.js'
 import { PriorityQueue, ToolTask } from './priorityQueue.js'
 import { ProgressTracker } from './progressTracker.js'
 import { ToolCache } from './toolCache.js'
@@ -159,8 +159,8 @@ const COORDINATOR_ALLOWED_TOOLS = new Set([
   'Agent', 'MultiAgent',
   // Intelligence / lookup (fast, no side effects)
   'WeaponRadar', 'WebSearch', 'WebFetch',
-  // Reading sub-agent outputs
-  'Read', 'Glob', 'Grep',
+  // Reading sub-agent outputs and documents
+  'Read', 'Glob', 'Grep', 'DocRead',
   // Progress tracking
   'FindingWrite', 'FindingList', 'TodoWrite',
   // C2 coordination (get_ip, list_sessions, list_listeners — read-only actions)
@@ -328,6 +328,12 @@ export class ExecutionEngine {
       cwd: this.config.cwd,
       permissionMode: this.config.permissionMode,
       signal: turnAbortController.signal,
+      // Forward API config so vision/doc tools can make their own LLM calls
+      apiConfig: {
+        apiKey: this.config.apiKey,
+        baseURL: this.config.baseURL,
+        model: this.config.model,
+      },
     }
 
     const messages: OpenAIMessage[] = [
@@ -370,16 +376,27 @@ export class ExecutionEngine {
           }
         }
 
-        // ── Auto-compact when context grows too large ────────────
-        const estimatedTokens = estimateTokens(messages)
-        if (estimatedTokens > COMPACT_THRESHOLD_TOKENS) {
-          this.renderer.compactStart(estimatedTokens)
+        // ── Context stats + auto-compact ────────────────────────
+        // Use percentage-based thresholds (ref: calculateTokenWarningState in
+        // reference implementation).  Mirrors 70% warn / 85% compact pattern.
+        const maxCtxTokens = this.config.maxContextTokens ?? MODEL_MAX_CONTEXT_TOKENS
+        const ctxState = calculateContextState(messages, maxCtxTokens)
+
+        // Show context stats every 5 iterations (main agent only, not sub-agents)
+        if (this.config.sessionDir && iterations % 5 === 0) {
+          this.renderer.contextStats(ctxState.currentTokens, ctxState.maxTokens, ctxState.pct)
+        }
+
+        if (ctxState.shouldCompact) {
+          this.renderer.compactStart(ctxState.currentTokens)
           const compactResult = await maybeCompact(this.client, this.config.model, messages)
           if (compactResult.compacted) {
             messages.length = 0
             messages.push(...compactResult.messages)
             this.renderer.compactDone(compactResult.originalTokens, compactResult.summaryTokens)
           }
+        } else if (ctxState.shouldWarn) {
+          this.renderer.contextWarning(ctxState.currentTokens, ctxState.maxTokens, ctxState.pct)
         }
 
         // ── Critic injection — every CRITIC_INTERVAL iterations ──

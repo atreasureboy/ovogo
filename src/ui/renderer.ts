@@ -531,6 +531,34 @@ export class Renderer {
     )
   }
 
+  // ── Context stats (percentage-based) ─────────────────────────
+
+  /**
+   * Display a warning bar when context usage exceeds the warn threshold.
+   * Inspired by the reference implementation's autoCompact warning display.
+   */
+  contextWarning(tokens: number, maxTokens: number, pct: number): void {
+    const pctStr = Math.round(pct * 100)
+    this.write(
+      `\n  ${STRIPE.compact}  ${FG.yellow}⚠${RESET}` +
+        `  ${DIM}上下文 ${pctStr}% · ~${Math.round(tokens / 1000)}k / ${Math.round(maxTokens / 1000)}k tokens — 接近压缩阈值${RESET}\n`,
+    )
+  }
+
+  /**
+   * Periodic token-usage status line shown every N iterations.
+   * Keeps the operator informed without flooding the terminal.
+   */
+  contextStats(tokens: number, maxTokens: number, pct: number): void {
+    const pctInt = Math.round(pct * 100)
+    const filled = Math.round(pct * 16)
+    const bar = '█'.repeat(filled) + '░'.repeat(16 - filled)
+    const color = pct >= 0.85 ? FG.red : pct >= 0.70 ? FG.yellow : FG.brightBlack
+    this.write(
+      `  ${DIM}ctx [${color}${bar}${RESET}${DIM}] ${pctInt}% · ~${Math.round(tokens / 1000)}k/${Math.round(maxTokens / 1000)}k${RESET}\n`,
+    )
+  }
+
   // ── Turn stats ────────────────────────────────────────────────
 
   turnStats(iterations: number, model: string): void {

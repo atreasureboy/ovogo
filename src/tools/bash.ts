@@ -47,7 +47,7 @@ export class BashTool implements Tool {
           },
           timeout: {
             type: 'number',
-            description: 'Timeout in milliseconds (default: 120000, max: 600000)',
+            description: `Timeout in milliseconds. Default: ${DEFAULT_TIMEOUT_MS} (30 min). Max: ${MAX_TIMEOUT_MS} (4 h). For nuclei/nmap/hydra full scans, prefer run_in_background:true instead of raising timeout.`,
           },
           run_in_background: {
             type: 'boolean',

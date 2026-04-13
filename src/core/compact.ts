@@ -14,14 +14,57 @@ import type { OpenAIMessage } from './types.js'
 // Rough chars-per-token estimate (conservative — better to compact early)
 const CHARS_PER_TOKEN = 3.5
 
-// Trigger compact when estimated tokens exceed this (model max is usually 128k–200k)
+// Legacy flat threshold — kept for backward compat but percentage-based thresholds
+// (CONTEXT_WARN_PCT / CONTEXT_COMPACT_PCT) are preferred for dynamic model support.
 export const COMPACT_THRESHOLD_TOKENS = 80_000
+
+// Model max context window (tokens). Matches claude-sonnet-4-x 200k context.
+// Sub-agents inherit the same model so one constant is sufficient here.
+export const MODEL_MAX_CONTEXT_TOKENS = 200_000
+
+// Percentage-based thresholds (inspired by reference codebase autoCompact.ts)
+const CONTEXT_WARN_PCT    = 0.70   // 70%  → display yellow warning
+const CONTEXT_COMPACT_PCT = 0.85   // 85%  → force compact (was flat 80 k)
 
 // Keep this many recent messages verbatim after compaction
 const KEEP_RECENT_MESSAGES = 8
 
 // Reserve tokens for the summary output itself
 const SUMMARY_OUTPUT_RESERVE = 4_000
+
+// ── Context state ────────────────────────────────────────────────────────────
+
+export interface ContextState {
+  /** Estimated current token count */
+  currentTokens: number
+  /** Model maximum context window */
+  maxTokens: number
+  /** Usage fraction 0–1 */
+  pct: number
+  /** True when ≥ CONTEXT_WARN_PCT — show a yellow warning */
+  shouldWarn: boolean
+  /** True when ≥ CONTEXT_COMPACT_PCT — trigger auto-compact immediately */
+  shouldCompact: boolean
+}
+
+/**
+ * Calculate current context usage and determine whether to warn or compact.
+ * Mirrors calculateTokenWarningState() in the reference implementation.
+ */
+export function calculateContextState(
+  messages: OpenAIMessage[],
+  maxTokens: number = MODEL_MAX_CONTEXT_TOKENS,
+): ContextState {
+  const currentTokens = estimateTokens(messages)
+  const pct = currentTokens / maxTokens
+  return {
+    currentTokens,
+    maxTokens,
+    pct,
+    shouldWarn:   pct >= CONTEXT_WARN_PCT,
+    shouldCompact: pct >= CONTEXT_COMPACT_PCT,
+  }
+}
 
 /**
  * Rough token count estimate from message array.

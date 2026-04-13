@@ -20,6 +20,7 @@ import { MultiAgentTool } from './multiAgent.js'
 import { ShellSessionTool } from './shellSession.js'
 import { TmuxSessionTool } from './tmuxSession.js'
 import { C2Tool } from './c2.js'
+import { DocReadTool } from './docRead.js'
 
 export function createTools(extraTools: Tool[] = []): Tool[] {
   return [
@@ -41,6 +42,7 @@ export function createTools(extraTools: Tool[] = []): Tool[] {
     new WeaponRadarTool(),
     new MultiScanTool(),
     new C2Tool(),
+    new DocReadTool(),
     ...extraTools,
   ]
 }
@@ -54,6 +56,7 @@ export function findTool(tools: Tool[], name: string): Tool | undefined {
 }
 
 export {
+  DocReadTool,
   BashTool,
   FileReadTool,
   FileWriteTool,

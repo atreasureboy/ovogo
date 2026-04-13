@@ -80,6 +80,11 @@ export interface ToolContext {
   signal?: AbortSignal
   /** Progress update function for long-running tools */
   updateProgress?: (progress: number, recoveryData?: Record<string, unknown>) => void
+  /**
+   * API config forwarded from engine — allows tools that need LLM calls
+   * (e.g. image analysis via vision API) to reuse the same endpoint + key.
+   */
+  apiConfig?: { apiKey: string; baseURL?: string; model: string }
 }
 
 /**
@@ -123,6 +128,12 @@ export interface EngineConfig {
    * Only applies to the main agent (sessionDir is set), not sub-agents.
    */
   coordinatorMode?: boolean
+  /**
+   * Maximum context window in tokens for the selected model.
+   * Defaults to 200_000 (claude-sonnet-4-x).  Used to compute percentage-based
+   * compact/warn thresholds instead of a flat token count.
+   */
+  maxContextTokens?: number
 }
 
 export interface TurnResult {

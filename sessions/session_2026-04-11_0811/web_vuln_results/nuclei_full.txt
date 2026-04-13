@@ -1,3 +1,5 @@
 [CVE-2023-5652] [http] [critical] https://zhhovo.top/wp-admin/admin-ajax.php
 [CVE-2023-6063] [http] [high] https://zhhovo.top/wp-login.php
 [CVE-2024-2473] [http] [medium] https://zhhovo.top/wp-admin/?action=postpass
+[cookies-without-httponly] [javascript] [info] zhhovo.top ["PHPSESSID"]
+[cookies-without-secure] [javascript] [info] zhhovo.top ["PHPSESSID","SITE_TOTAL_ID"]

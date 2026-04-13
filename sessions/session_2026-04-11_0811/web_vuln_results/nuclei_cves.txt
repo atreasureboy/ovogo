@@ -2,3 +2,4 @@
 [CVE-2023-6063] [http] [high] https://zhhovo.top/wp-login.php
 [CVE-2023-6063] [http] [high] https://zhhovo.top/wp-login.php
 [CVE-2024-2473] [http] [medium] https://zhhovo.top/wp-admin/?action=postpass
+[wp-user-enum:usernames] [http] [low] https://zhhovo.top/?rest_route=/wp/v2/users/ ["zhhqzs","ZHHQZS"]

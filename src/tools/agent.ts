@@ -182,41 +182,50 @@ export async function runAgentTask(
   }
 }
 
-// Default max_iterations per agent type (agents are focused, need enough room)
+// Default max_iterations per agent type.
+//
+// Background-scan agents (vuln-scan / web-vuln / service-vuln / lateral)
+// now get higher limits because they launch long-running tools (nuclei / nmap /
+// hydra) in the background and then poll for results — that polling consumes
+// LLM iterations.  Without headroom the agent exits before scans finish and
+// the main agent loses the results.
+//
+// Rule of thumb: background-scan agents need ~(scan_minutes / 2) extra turns.
+// A 30-minute nuclei run polled every 3 turns = ~10 extra turns → add 40 buffer.
 export const DEFAULT_ITERATIONS: Record<string, number> = {
   // 侦察（并行）
-  'recon':            80,
-  'dns-recon':        80,
-  'port-scan':        80,
-  'web-probe':        80,
-  'osint':            60,
+  'recon':            100,   // was 80 — launches dns+port+web+osint in background
+  'dns-recon':         80,
+  'port-scan':         80,
+  'web-probe':         80,
+  'osint':             60,
   // 漏洞检索
-  'weapon-match':     60,
-  // 漏洞探测（开局就扫）
-  'vuln-scan':       120,
-  'web-vuln':        120,
-  'service-vuln':    100,
-  'auth-attack':     100,
-  // 漏洞利用（手动+工具，两个并行）
-  'manual-exploit':  100,
-  'tool-exploit':    100,
-  // C2（与漏洞利用同时）
-  'c2-deploy':        80,
-  // 靶机（信息收集+提权）
-  'target-recon':     80,
-  'privesc':         100,
-  // 内网横移
-  'tunnel':           80,
-  'internal-recon':  100,
-  'lateral':         120,
+  'weapon-match':      60,
+  // 漏洞探测 — increased: long nuclei/hydra runs need polling headroom
+  'vuln-scan':        200,   // was 120 — orchestrates 3 sub-scan agents + polls
+  'web-vuln':         180,   // was 120 — nuclei full-template scans are 30-60 min
+  'service-vuln':     150,   // was 100
+  'auth-attack':      150,   // was 100 — hydra dict attacks can run 20+ min
+  // 漏洞利用
+  'manual-exploit':   120,   // was 100
+  'tool-exploit':     120,   // was 100
+  // C2
+  'c2-deploy':         80,
+  // 靶机
+  'target-recon':      80,
+  'privesc':          120,   // was 100 — linpeas + manual enum
+  // 内网横移 — increased: tunnel setup + internal nmap can be slow
+  'tunnel':           100,   // was 80
+  'internal-recon':   150,   // was 100
+  'lateral':          180,   // was 120 — full internal attack chain
   // Flag收集
-  'flag-hunter':      80,
+  'flag-hunter':       80,
   // 综合
-  'report':           60,
-  'general-purpose': 60,
-  'explore':         40,
-  'plan':            30,
-  'code-reviewer':   30,
+  'report':            60,
+  'general-purpose':   60,
+  'explore':           40,
+  'plan':              30,
+  'code-reviewer':     30,
 }
 
 export class AgentTool implements Tool {

@@ -118,7 +118,7 @@ function getIntroSection(cwd: string, sessionDir?: string): string {
 ### 关键原则
 
 - **永远不要自己执行Bash命令** — 你是将军，不是士兵
-- **子agent并行执行** — 侦察阶段用MultiAgent并行，利用阶段用Agent串行
+- **优先并行** — 同阶段内无数据依赖的子agent必须用 MultiAgent 并行启动；串行（Agent逐个调用）只用于有严格先后依赖的步骤
 - **定时检查** — 每个阶段完成后，读取子agent输出，评估是否需要调整策略
 - **信息传递** — 将阶段N的发现写入prompt传给阶段N+1的子agent
 - **防止跑偏** — 如果子agent长时间无进展，终止并换策略
@@ -202,6 +202,28 @@ MultiAgent({
  - ❌ \`Bash({ command: "nmap ...", run_in_background: true })\`
  - ❌ \`MultiScan({ tasks: [...nmap, ...nuclei...] })\`
  - ✅ \`MultiAgent([recon, vuln-scan])\`
+
+## 并行原则（AgentOS Coordinator 模式）
+
+**决策树**：同一阶段内多个子 agent 是否互相依赖？
+- 无依赖（如侦察 + 漏洞扫描、手工利用 + 工具利用 + C2部署） → **必须 MultiAgent 并行**
+- 有严格先后依赖（如"需要侦察结果才能匹配武器"）→ 允许串行 Agent
+
+每次准备调用 Agent 前，先问自己：**这里有 2 个以上可并行的任务吗？** 有的话，合并成一个 MultiAgent 调用，不是多个单独的 Agent 调用。
+
+\`\`\`
+❌ 错误（串行，浪费时间）:
+  Agent({ subagent_type: "manual-exploit", ... })
+  Agent({ subagent_type: "tool-exploit", ... })
+  Agent({ subagent_type: "c2-deploy", ... })
+
+✅ 正确（并行，节省 2/3 时间）:
+  MultiAgent({ agents: [
+    { subagent_type: "manual-exploit", ... },
+    { subagent_type: "tool-exploit", ... },
+    { subagent_type: "c2-deploy", ... },
+  ]})
+\`\`\`
 
 ## Phase 1 完成后 — 进入监控循环
 
