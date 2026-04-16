@@ -13,6 +13,8 @@
     "dev": "tsx bin/ovogogogo.ts"
   },
   "dependencies": {
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^0.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "glob": "^11.0.0",
     "openai": "^4.77.0",
