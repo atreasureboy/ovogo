@@ -13,7 +13,6 @@
 import OpenAI from 'openai'
 import type { Renderer } from '../ui/renderer.js'
 import type { ExecutionEngine } from './engine.js'
-import type { OpenAIMessage, EngineConfig } from './types.js'
 
 // ─── Phase definitions ──────────────────────────────────────────────────────
 
