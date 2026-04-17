@@ -37,6 +37,7 @@ import { ProgressTracker } from './progressTracker.js'
 import { ToolCache } from './toolCache.js'
 import type { EventLogEntry } from './eventLog.js'
 import { ContextBudgetManager, CompressionStrategy } from './contextBudget.js'
+import { KnowledgeExtractor } from './knowledgeExtractor.js'
 
 const MAX_TOOL_RESULT_LENGTH = 20_000
 
@@ -315,6 +316,8 @@ export class ExecutionEngine {
   private contextBudget: EngineConfig['contextBudget']
   /** Dispatch manager — may be undefined if not configured */
   private dispatchManager: EngineConfig['dispatchManager']
+  /** Knowledge extractor — may be undefined if not configured */
+  private knowledgeExtractor: KnowledgeExtractor | null = null
 
   constructor(config: EngineConfig, renderer: Renderer) {
     this.config = config
@@ -323,12 +326,17 @@ export class ExecutionEngine {
       apiKey: config.apiKey,
       baseURL: config.baseURL,
     })
-    this.tools = createTools(config.extraTools ?? [])
+    this.tools = createTools(config.extraTools ?? [], config.knowledgeBase)
     this.progressTracker = config.progressTracker || new ProgressTracker()
     this.toolCache = config.toolCache || new ToolCache()
     this.eventLog = config.eventLog
     this.contextBudget = config.contextBudget
     this.dispatchManager = config.dispatchManager
+
+    // Initialize knowledge extractor if knowledge base is configured
+    if (config.knowledgeBase) {
+      this.knowledgeExtractor = new KnowledgeExtractor(config.knowledgeBase)
+    }
   }
 
   /**
@@ -640,6 +648,7 @@ export class ExecutionEngine {
         messages.push(assistantMsg)
 
         if (finishReason === 'stop' || rawToolCalls.length === 0) {
+          this.extractSessionKnowledge(messages)
           return {
             result: { stopped: true, reason: 'stop_sequence', output: finalOutput },
             newHistory: messages,
@@ -743,10 +752,23 @@ export class ExecutionEngine {
     }
 
     this.renderer.warn(`Max iterations (${this.config.maxIterations}) reached`)
+    this.extractSessionKnowledge(messages)
     return {
       result: { stopped: true, reason: 'max_iterations', output: finalOutput },
       newHistory: messages,
     }
+  }
+
+  /** Session-end knowledge extraction (best-effort, never throws) */
+  private extractSessionKnowledge(messages: OpenAIMessage[]): void {
+    if (!this.knowledgeExtractor || !this.eventLog) return
+    try {
+      const events = this.eventLog.readAll()
+      this.knowledgeExtractor.extractAttackChains(events)
+      this.knowledgeExtractor.extractToolCombos(events)
+      this.knowledgeExtractor.extractTargetProfile(events)
+      this.knowledgeExtractor.extractFromSession()
+    } catch { /* best-effort — knowledge extraction must never break the engine */ }
   }
 
   private async executeToolCall(
@@ -860,6 +882,11 @@ export class ExecutionEngine {
           outcome: result.isError ? 'failure' : 'success',
           timestamp: new Date().toISOString(),
         })
+      }
+
+      // Real-time knowledge extraction
+      if (!result.isError && this.knowledgeExtractor) {
+        this.knowledgeExtractor.extractFromToolResult(toolName, input, result.content)
       }
 
       return result

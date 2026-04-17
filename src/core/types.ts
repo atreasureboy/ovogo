@@ -96,6 +96,8 @@ export interface ToolContext {
   semanticMemory?: import('./semanticMemory.js').SemanticMemory
   /** Episodic memory — action trajectory persistence */
   episodicMemory?: import('./episodicMemory.js').EpisodicMemory
+  /** Knowledge base — growing attack knowledge */
+  knowledgeBase?: import('./knowledgeBase.js').KnowledgeBase
 }
 
 /**
@@ -161,6 +163,8 @@ export interface EngineConfig {
   semanticMemory?: import('./semanticMemory.js').SemanticMemory
   /** Episodic memory — action trajectory persistence */
   episodicMemory?: import('./episodicMemory.js').EpisodicMemory
+  /** Knowledge base — growing attack knowledge */
+  knowledgeBase?: import('./knowledgeBase.js').KnowledgeBase
 }
 
 export interface TurnResult {

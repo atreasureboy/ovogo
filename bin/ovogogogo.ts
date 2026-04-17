@@ -49,6 +49,7 @@ import { EventLog } from '../src/core/eventLog.js'
 import { SemanticMemory } from '../src/core/semanticMemory.js'
 import { EpisodicMemory } from '../src/core/episodicMemory.js'
 import { ContextBudgetManager } from '../src/core/contextBudget.js'
+import { KnowledgeBase } from '../src/core/knowledgeBase.js'
 import { tmuxLayout } from '../src/ui/tmuxLayout.js'
 
 const VERSION = '0.1.0'
@@ -661,6 +662,31 @@ async function main(): Promise<void> {
     }
   }
 
+  // Initialize knowledge base (global + project-level)
+  const projectSlug = cwd.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 32)
+  const projectKnowledgeDir = join(process.env.HOME ?? '', '.ovogo', 'projects', projectSlug, 'knowledge')
+  const knowledgeBase = new KnowledgeBase(projectKnowledgeDir)
+  const kbStats = knowledgeBase.stats()
+  const kbTotal = Object.values(kbStats).reduce((a, b) => a + b, 0)
+  if (kbTotal > 0) {
+    renderer.info(`Knowledge Base: ${kbTotal} entries (${kbStats.attack_patterns} attack, ${kbStats.cve_notes} CVE, ${kbStats.tool_combos} combos, ${kbStats.target_profiles} profiles)`)
+  } else {
+    renderer.info(`Knowledge Base: empty — will grow from sessions`)
+  }
+
+  // Query relevant knowledge for system prompt injection
+  let knowledgePrompt = ''
+  if (kbTotal > 0) {
+    const targetForQuery = engagement?.targets?.[0] ?? ''
+    const entries = targetForQuery
+      ? knowledgeBase.searchByTarget(targetForQuery, 15)
+      : knowledgeBase.recommend('', 10).map((e) => ({ type: 'attack_patterns' as const, data: e }))
+    if (entries.length > 0) {
+      knowledgePrompt = knowledgeBase.toPrompt(entries)
+      renderer.info(`Knowledge: ${entries.length} entries injected into system prompt`)
+    }
+  }
+
   // Create per-session output directory
   const primaryTarget = engagement?.targets?.[0]
   const sessionDir = createSessionDir(cwd, primaryTarget)
@@ -673,9 +699,9 @@ async function main(): Promise<void> {
     renderer.info(`Agent 监控: ${tmuxLayout.sessionHint()}`)
   }
 
-  // Build the full system prompt once (OVOGO.md + memory + engagement + sessionDir injected)
+  // Build the full system prompt once (OVOGO.md + memory + engagement + sessionDir + knowledge)
   const memorySection = buildMemorySystemSection(memoryDir)
-  const systemPrompt = buildFullSystemPrompt(cwd, ovogoMdFiles, memorySection, engagement, sessionDir)
+  const systemPrompt = buildFullSystemPrompt(cwd, ovogoMdFiles, memorySection, engagement, sessionDir, knowledgePrompt)
 
   // Load MCP servers (non-fatal if config missing)
   let mcpConnections: ConnectedMcpClient[] = []
@@ -697,7 +723,7 @@ async function main(): Promise<void> {
   const eventLog = new EventLog(sessionDir)
   renderer.info(`EventLog: ${eventLog.getFilePath()}`)
 
-  const projectSlug = cwd.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 32)
+  // Remove duplicate projectSlug — already declared above
   const semanticMemory = new SemanticMemory(join(process.env.HOME ?? '', '.ovogo', 'projects', projectSlug))
   const episodicMemory = new EpisodicMemory(join(process.env.HOME ?? '', '.ovogo', 'projects', projectSlug))
 
@@ -743,6 +769,7 @@ async function main(): Promise<void> {
     dispatchManager,
     semanticMemory,
     episodicMemory,
+    knowledgeBase: kbTotal > 0 ? knowledgeBase : undefined,
   }
 
   // Plan-mode config: same system prompt + planMode=true (engine filters write tools)

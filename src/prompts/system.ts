@@ -14,6 +14,7 @@ import type { OvogoMdFile } from '../config/ovogomd.js'
 import { formatOvogoMdForPrompt } from '../config/ovogomd.js'
 import type { EngagementScope } from '../config/settings.js'
 import { getAttackKnowledgeSection } from './attackKnowledge.js'
+import type { KnowledgeEntry } from '../core/knowledgeBase.js'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -536,6 +537,7 @@ export function getMinimalSystemPrompt(cwd: string): string {
  *   1. Base agent prompt (identity, tools, git rules, etc.)
  *   2. OVOGO.md files (project + user instructions)
  *   3. Memory system section (MEMORY.md index + write instructions)
+ *   4. Battle knowledge entries (from KnowledgeBase)
  *
  * This is called once at startup and cached in EngineConfig.systemPrompt.
  * Sub-agents get their own type-specific prompts instead.
@@ -546,8 +548,14 @@ export function buildFullSystemPrompt(
   memorySection: string,
   engagement?: EngagementScope,
   sessionDir?: string,
+  knowledgePrompt?: string,
 ): string {
   const parts: string[] = [getSystemPrompt(cwd, engagement, sessionDir)]
+
+  // Inject battle knowledge
+  if (knowledgePrompt) {
+    parts.push(knowledgePrompt)
+  }
 
   const ovogoMdSection = formatOvogoMdForPrompt(ovogoMdFiles)
   if (ovogoMdSection) {

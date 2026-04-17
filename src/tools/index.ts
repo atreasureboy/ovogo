@@ -21,9 +21,11 @@ import { ShellSessionTool } from './shellSession.js'
 import { TmuxSessionTool } from './tmuxSession.js'
 import { C2Tool } from './c2.js'
 import { DocReadTool } from './docRead.js'
+import { KnowledgeQueryTool } from './knowledgeQuery.js'
+import type { KnowledgeBase } from '../core/knowledgeBase.js'
 
-export function createTools(extraTools: Tool[] = []): Tool[] {
-  return [
+export function createTools(extraTools: Tool[] = [], knowledgeBase?: KnowledgeBase): Tool[] {
+  const tools: Tool[] = [
     new BashTool(),
     new FileReadTool(),
     new FileWriteTool(),
@@ -48,6 +50,12 @@ export function createTools(extraTools: Tool[] = []): Tool[] {
     new DocReadTool(),
     ...extraTools,
   ]
+
+  if (knowledgeBase) {
+    tools.push(new KnowledgeQueryTool(knowledgeBase))
+  }
+
+  return tools
 }
 
 export function getToolDefinitions(tools: Tool[]) {
