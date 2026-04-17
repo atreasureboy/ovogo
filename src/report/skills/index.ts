@@ -1,4 +1,5 @@
-import { ToolResult } from '../../core/types';
+import type { ToolResult } from '../../core/agentTypes.js';
+import * as path from 'path';
 import {
   generateMarkdownReport,
   generateHTMLReport,
@@ -9,7 +10,7 @@ import {
   generateRemediationPriority,
   generateVulnerabilityDistribution,
   generateComplianceReport
-} from '../tools';
+} from '../tools/index.js';
 
 /**
  * Skill: 收集并整合所有子智能体的结果
@@ -255,6 +256,7 @@ export async function aggregateAllAgentResults(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `整合子智能体结果失败: ${error}`
     };
   }
@@ -299,6 +301,7 @@ export async function generateComprehensiveReport(
     if (!aggregateResult.success || !aggregateResult.data) {
       return {
         success: false,
+        data: null as any,
         error: `数据整合失败: ${aggregateResult.error}`
       };
     }
@@ -393,6 +396,7 @@ export async function generateComprehensiveReport(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成完整报告失败: ${error}`
     };
   }
@@ -482,6 +486,7 @@ export async function generateExecutiveSummary(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成执行摘要失败: ${error}`
     };
   }
@@ -508,6 +513,7 @@ export async function generateComplianceAnalysis(
     if (!complianceResult.success || !complianceResult.data) {
       return {
         success: false,
+        data: null as any,
         error: '合规性分析失败'
       };
     }
@@ -558,6 +564,7 @@ export async function generateComplianceAnalysis(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成合规性分析失败: ${error}`
     };
   }

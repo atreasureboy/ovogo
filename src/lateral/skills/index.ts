@@ -1,4 +1,4 @@
-import { ToolResult } from '../../core/types';
+import type { ToolResult } from '../../core/agentTypes.js';
 import {
   discoverInternalHosts,
   scanHostPorts,
@@ -10,7 +10,7 @@ import {
   attemptRDPBrute,
   collectKerberosTickets,
   enumerateRemoteServices
-} from '../tools';
+} from '../tools/index.js';
 
 /**
  * Skill: 全面内网侦察
@@ -45,6 +45,7 @@ export async function comprehensiveInternalRecon(
     if (!hostsResult.success || !hostsResult.data) {
       return {
         success: false,
+        data: null as any,
         error: `主机发现失败: ${hostsResult.error}`
       };
     }
@@ -116,6 +117,7 @@ export async function comprehensiveInternalRecon(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `全面内网侦察失败: ${error}`
     };
   }
@@ -203,6 +205,7 @@ export async function collectAndOrganizeCredentials(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `凭据收集失败: ${error}`
     };
   }
@@ -322,6 +325,7 @@ export async function batchSSHLateralMovement(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `SSH横向移动失败: ${error}`
     };
   }
@@ -435,6 +439,7 @@ export async function batchWindowsLateralMovement(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `Windows横向移动失败: ${error}`
     };
   }
@@ -558,6 +563,7 @@ export async function intelligentCredentialReuse(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `智能凭据复用失败: ${error}`
     };
   }
@@ -592,7 +598,7 @@ export async function establishPersistentLateralChannel(
 
     // 步骤1: 部署SSH密钥
     console.log('[Skill] 步骤1: 部署SSH公钥...');
-    const { executeCommand } = await import('../../core/shell');
+    const { executeCommand } = await import('../../core/shell.js');
 
     // 生成SSH密钥对（如果不存在）
     await executeCommand(shellId, `test -f ~/.ssh/id_rsa || ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa`);
@@ -639,6 +645,7 @@ export async function establishPersistentLateralChannel(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `建立持久化通道失败: ${error}`
     };
   }

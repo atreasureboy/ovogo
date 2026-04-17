@@ -4,7 +4,7 @@
  * 添加 --langgraph 标志，启用新的状态图引擎。
  */
 
-import { LangGraphEngine } from '../src/core/langGraphEngine.js'
+import { LangGraphEngine } from './langGraphEngine.js'
 
 // 在 main() 函数中添加 LangGraph 模式检测
 // 在 config 构建之后，engine 创建之前插入以下代码：

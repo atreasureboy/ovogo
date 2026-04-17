@@ -1,5 +1,5 @@
-import { executeCommand } from '../../core/shell';
-import { ToolResult } from '../../core/types';
+import { executeCommand } from '../../core/shell.js';
+import type { ToolResult } from '../../core/agentTypes.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -85,6 +85,7 @@ export async function generateMarkdownReport(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成Markdown报告失败: ${error}`
     };
   }
@@ -221,6 +222,7 @@ export async function generateHTMLReport(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成HTML报告失败: ${error}`
     };
   }
@@ -272,6 +274,7 @@ export async function generateJSONReport(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成JSON报告失败: ${error}`
     };
   }
@@ -298,6 +301,7 @@ export async function generatePDFReport(
     if (result.output.includes('wkhtmltopdf not found')) {
       return {
         success: false,
+        data: null as any,
         error: 'wkhtmltopdf工具未安装'
       };
     }
@@ -315,6 +319,7 @@ export async function generatePDFReport(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成PDF报告失败: ${error}`
     };
   }
@@ -397,6 +402,7 @@ export async function calculateRiskScore(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `计算风险评分失败: ${error}`
     };
   }
@@ -436,6 +442,7 @@ export async function generateAttackTimeline(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成攻击时间线失败: ${error}`
     };
   }
@@ -513,6 +520,7 @@ export async function generateRemediationPriority(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成修复优先级列表失败: ${error}`
     };
   }
@@ -560,6 +568,7 @@ export async function generateVulnerabilityDistribution(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成漏洞分布失败: ${error}`
     };
   }
@@ -610,6 +619,7 @@ export async function generateComplianceReport(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成合规性报告失败: ${error}`
     };
   }

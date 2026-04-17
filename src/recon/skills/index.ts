@@ -28,21 +28,8 @@ import {
 
 // ── Skill 输出标准格式 ────────────────────────────────────────
 
-export interface SkillResult<T = unknown> {
-  success: boolean
-  data: T
-  steps: SkillStep[]
-  duration: number
-  skill: string
-}
-
-export interface SkillStep {
-  tool: string
-  success: boolean
-  duration: number
-  dataCount: number
-  error?: string
-}
+import type { SkillResult, SkillStep } from '../../core/agentTypes.js'
+export type { SkillResult, SkillStep }
 
 // ── 子域名收集 Skill ──────────────────────────────────────────
 

@@ -1,17 +1,17 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ToolResult } from '../../core/types';
+import type { ToolResult } from '../../core/agentTypes.js';
 import {
   generateMarkdownReport,
   generateHTMLReport,
   generateJSONReport,
   calculateRiskScore
-} from '../tools';
+} from '../tools/index.js';
 import {
   aggregateAllAgentResults,
   generateComprehensiveReport,
   generateExecutiveSummary,
   generateComplianceAnalysis
-} from '../skills';
+} from '../skills/index.js';
 
 /**
  * 报告状态图

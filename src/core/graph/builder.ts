@@ -7,7 +7,7 @@
  * Supervisor 决定下一步启动哪个 worker，worker 完成后回到 supervisor。
  */
 
-import { StateGraph, END } from '@langchain/langgraph'
+import { StateGraph, END, START } from '@langchain/langgraph'
 import { GraphState, type GraphStateType, type RouteDecision } from './types.js'
 import { supervisorNode, routeFromSupervisor } from './nodes/supervisor.js'
 import {
@@ -25,33 +25,21 @@ import {
  * 构建完整的渗透测试状态图
  */
 export function buildPentestGraph() {
-  const graph = new StateGraph(GraphState)
-
-  // ── 添加节点 ──────────────────────────────────────────────────
-
-  // 主协调节点
-  graph.addNode('supervisor', supervisorNode)
-
-  // Worker 节点（各阶段子 agent）
-  graph.addNode('recon', reconWorker)
-  graph.addNode('vuln_scan', vulnScanWorker)
-  graph.addNode('weapon_match', weaponMatchWorker)
-  graph.addNode('exploit', exploitWorker)
-  graph.addNode('post_exploit', postExploitWorker)
-  graph.addNode('privesc', privescWorker)
-  graph.addNode('lateral', lateralWorker)
-  graph.addNode('report', reportWorker)
-
-  // ── 设置入口 ──────────────────────────────────────────────────
-
-  graph.addEdge('__start__', 'supervisor')
-
-  // ── 条件路由：Supervisor → Workers ────────────────────────────
-
-  graph.addConditionalEdges(
-    'supervisor',
-    routeFromSupervisor,
-    {
+  return new StateGraph(GraphState)
+    // ── 添加节点 ──────────────────────────────────────────────────
+    .addNode('supervisor', supervisorNode)
+    .addNode('recon', reconWorker)
+    .addNode('vuln_scan', vulnScanWorker)
+    .addNode('weapon_match', weaponMatchWorker)
+    .addNode('exploit', exploitWorker)
+    .addNode('post_exploit', postExploitWorker)
+    .addNode('privesc', privescWorker)
+    .addNode('lateral', lateralWorker)
+    .addNode('report', reportWorker)
+    // ── 设置入口 ──────────────────────────────────────────────────
+    .addEdge(START, 'supervisor')
+    // ── 条件路由：Supervisor → Workers ────────────────────────────
+    .addConditionalEdges('supervisor', routeFromSupervisor, {
       delegate_recon: 'recon',
       delegate_vuln_scan: 'vuln_scan',
       delegate_weapon_match: 'weapon_match',
@@ -60,28 +48,22 @@ export function buildPentestGraph() {
       delegate_privesc: 'privesc',
       delegate_lateral: 'lateral',
       delegate_report: 'report',
-      wait_for_agents: 'supervisor', // 循环等待
+      wait_for_agents: 'supervisor',
       finish: END,
       error: END,
-    },
-  )
-
-  // ── Workers → Supervisor（完成后回到协调节点）─────────────────
-
-  graph.addEdge('recon', 'supervisor')
-  graph.addEdge('vuln_scan', 'supervisor')
-  graph.addEdge('weapon_match', 'supervisor')
-  graph.addEdge('exploit', 'supervisor')
-  graph.addEdge('post_exploit', 'supervisor')
-  graph.addEdge('privesc', 'supervisor')
-  graph.addEdge('lateral', 'supervisor')
-
-  // Report 完成后直接结束
-  graph.addEdge('report', END)
-
-  // ── 编译图 ────────────────────────────────────────────────────
-
-  return graph.compile()
+    })
+    // ── Workers → Supervisor（完成后回到协调节点）─────────────────
+    .addEdge('recon', 'supervisor')
+    .addEdge('vuln_scan', 'supervisor')
+    .addEdge('weapon_match', 'supervisor')
+    .addEdge('exploit', 'supervisor')
+    .addEdge('post_exploit', 'supervisor')
+    .addEdge('privesc', 'supervisor')
+    .addEdge('lateral', 'supervisor')
+    // Report 完成后直接结束
+    .addEdge('report', END)
+    // ── 编译图 ────────────────────────────────────────────────────
+    .compile()
 }
 
 /**

@@ -28,21 +28,8 @@ import {
   type XrayVulnerability,
 } from '../tools/index.js'
 
-export interface SkillResult<T = unknown> {
-  success: boolean
-  data: T
-  steps: SkillStep[]
-  duration: number
-  skill: string
-}
-
-export interface SkillStep {
-  tool: string
-  success: boolean
-  duration: number
-  dataCount: number
-  error?: string
-}
+import type { SkillResult, SkillStep } from '../../core/agentTypes.js'
+export type { SkillResult, SkillStep }
 
 // ── Web 漏洞全面扫描 Skill ────────────────────────────────────
 

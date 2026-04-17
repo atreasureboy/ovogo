@@ -1,11 +1,11 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ToolResult } from '../../core/types';
+import type { ToolResult } from '../../core/agentTypes.js';
 import {
   startMetasploitListener,
   generateMetasploitPayload,
   startSliverServer,
   listC2Sessions
-} from '../tools';
+} from '../tools/index.js';
 import {
   deployMetasploitInfrastructure,
   deploySliverInfrastructure,
@@ -13,7 +13,7 @@ import {
   manageC2Sessions,
   automateC2Migration,
   establishRedundantC2Channels
-} from '../skills';
+} from '../skills/index.js';
 
 /**
  * C2拓扑图

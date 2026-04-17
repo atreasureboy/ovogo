@@ -17,14 +17,8 @@ const execAsync = promisify(exec)
 
 // ── 工具输出标准格式 ──────────────────────────────────────────
 
-export interface ToolResult<T = unknown> {
-  success: boolean
-  data: T
-  rawOutput?: string
-  error?: string
-  duration: number
-  tool: string
-}
+import type { ToolResult } from '../../core/agentTypes.js'
+export type { ToolResult }
 
 // ── 子域名工具 ────────────────────────────────────────────────
 

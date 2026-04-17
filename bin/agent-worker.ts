@@ -7,7 +7,7 @@
  */
 
 import { resolve, join } from 'path'
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'fs'
 import { ExecutionEngine } from '../src/core/engine.js'
 import { Renderer } from '../src/ui/renderer.js'
 import type { EngineConfig, OpenAIMessage } from '../src/core/types.js'
@@ -138,7 +138,6 @@ function extractStructuredResult(
 
   // 扫描 session 目录，收集输出文件
   try {
-    const { readdirSync } = await import('fs')
     const files = readdirSync(sessionDir)
     result.outputFiles = files.filter((f) => f.endsWith('.txt') || f.endsWith('.json') || f.endsWith('.yaml'))
   } catch {
@@ -224,7 +223,7 @@ async function main(): Promise<void> {
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY not set')
     }
-    const model = process.env.OVOGO_MODEL ?? 'qwen-max'
+    const model = process.env.OVOGO_MODEL ?? 'gpt-4o'
     const baseURL = process.env.OPENAI_BASE_URL
 
     // 创建日志文件渲染器

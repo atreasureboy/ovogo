@@ -25,21 +25,8 @@ import {
   type EnvHijackResult,
 } from '../tools/index.js'
 
-export interface SkillResult<T = unknown> {
-  success: boolean
-  data: T
-  steps: SkillStep[]
-  duration: number
-  skill: string
-}
-
-export interface SkillStep {
-  tool: string
-  success: boolean
-  duration: number
-  dataCount: number
-  error?: string
-}
+import type { SkillResult, SkillStep } from '../../core/agentTypes.js'
+export type { SkillResult, SkillStep }
 
 // ── 全面提权向量枚举 Skill ────────────────────────────────────
 
@@ -311,7 +298,6 @@ export async function attemptAutoPrivesc(
     try {
       // 执行提权命令（通过 ShellSession）
       // 这里简化处理，实际需要通过 ShellSession 执行
-      const { execAsync } = await import('util')
       const { promisify } = await import('util')
       const exec = promisify((await import('child_process')).exec)
 
@@ -400,7 +386,6 @@ export async function executeKernelExploit(
   const steps: SkillStep[] = []
 
   try {
-    const { execAsync } = await import('util')
     const { promisify } = await import('util')
     const exec = promisify((await import('child_process')).exec)
 
@@ -507,7 +492,6 @@ export async function executeDockerEscape(
   const steps: SkillStep[] = []
 
   try {
-    const { execAsync } = await import('util')
     const { promisify } = await import('util')
     const exec = promisify((await import('child_process')).exec)
 

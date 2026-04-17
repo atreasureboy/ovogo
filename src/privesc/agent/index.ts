@@ -1,21 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ToolResult } from '../../core/types';
-import {
-  enumerateSUIDBinaries,
-  checkSudoPrivileges,
-  matchKernelExploits,
-  enumerateCronJobs,
-  enumerateCapabilities,
-  detectDockerEscape,
-  detectEnvHijack,
-  checkWritableSystemPaths
-} from '../tools';
+import type { ToolResult } from '../../core/agentTypes.js';
+import type { KernelExploitResult, DockerEscapeResult } from '../tools/index.js';
 import {
   enumerateAllPrivescVectors,
   attemptAutoPrivesc,
   executeKernelExploit,
   executeDockerEscape
-} from '../skills';
+} from '../skills/index.js';
 
 /**
  * 权限提升状态图
@@ -53,6 +44,15 @@ interface PrivescGraph {
     command: string;
     timestamp: Date;
   };
+
+  // 原始枚举结果（用于传递给 skill 函数）
+  recommendations: Array<{
+    method: string;
+    command?: string;
+    risk: 'low' | 'medium' | 'high';
+  }>;
+  kernelExploitObjects: KernelExploitResult[];
+  dockerEscapeInfo?: DockerEscapeResult;
 }
 
 /**
@@ -93,7 +93,9 @@ export class PrivescAgent {
         env: [],
         writable: []
       },
-      attempts: []
+      attempts: [],
+      recommendations: [],
+      kernelExploitObjects: [],
     };
   }
 
@@ -227,15 +229,31 @@ export class PrivescAgent {
     const result = await enumerateAllPrivescVectors(this.shellId, this.sessionDir);
 
     if (result.success && result.data) {
-      // 更新状态图
-      this.graph.vectors = result.data.vectors;
-      this.graph.currentUser = result.data.currentUser;
-      this.graph.isRoot = result.data.isRoot;
+      const d = result.data;
+      // 映射到状态图 vectors
+      this.graph.vectors.suid = d.suidBinaries.map(s => ({ binary: s.binary, exploitable: s.exploitable, method: s.method }));
+      this.graph.vectors.sudo = d.sudoPrivileges.map(s => ({ command: s.command, nopasswd: s.nopasswd, exploit: s.exploit }));
+      this.graph.vectors.kernel = d.kernelExploits.map(k => ({ name: k.name, cve: k.cve, risk: 'medium' as const }));
+      this.graph.vectors.cron = d.cronJobs.map(c => ({ job: c.path, writable: c.writable, path: c.path }));
+      this.graph.vectors.capabilities = d.capabilities.map(c => ({ binary: c.binary, caps: c.capabilities, exploit: c.method }));
+      if (d.dockerEscape && (d.dockerEscape.privileged || d.dockerEscape.socketMounted)) {
+        this.graph.vectors.docker = [{ type: 'docker', method: d.dockerEscape.escapeMethod || 'docker' }];
+        this.graph.dockerEscapeInfo = d.dockerEscape;
+      }
+      this.graph.vectors.env = d.envHijack.map(e => ({ type: 'env', variable: e.variable, exploit: e.variable }));
 
-      console.log(`[PrivescAgent] 发现 ${result.data.recommendations.length} 个提权向量`);
+      // 保存原始数据供后续 skill 使用
+      this.graph.kernelExploitObjects = d.kernelExploits;
+      this.graph.recommendations = d.recommendations.map(r => ({
+        method: r.method,
+        command: r.command,
+        risk: r.risk,
+      }));
+
+      console.log(`[PrivescAgent] 发现 ${d.recommendations.length} 个提权向量`);
       console.log('[PrivescAgent] 优先级排序:');
-      result.data.recommendations.forEach((rec, idx) => {
-        console.log(`  ${idx + 1}. [${rec.priority}] ${rec.type}: ${rec.description}`);
+      d.recommendations.forEach((rec, idx) => {
+        console.log(`  ${idx + 1}. [${rec.priority}] ${rec.method}: ${rec.description}`);
       });
     } else {
       console.error('[PrivescAgent] 枚举失败:', result.error);
@@ -248,33 +266,31 @@ export class PrivescAgent {
   private async executeAutoPrivesc(): Promise<void> {
     console.log('[PrivescAgent] 开始自动提权尝试...');
 
-    const result = await attemptAutoPrivesc(this.shellId, this.sessionDir);
+    const result = await attemptAutoPrivesc(this.shellId, this.graph.recommendations, this.sessionDir);
+    const attempts: typeof result.data = result.data ?? [];
+    const succeeded = attempts.find(r => r.rootObtained);
 
     // 记录尝试
     this.graph.attempts.push({
       method: 'auto_privesc',
       vector: 'multiple',
       timestamp: new Date(),
-      success: result.success && result.data?.rootAchieved === true,
-      error: result.error
+      success: result.success,
+      error: result.error,
     });
 
-    if (result.success && result.data) {
-      this.graph.isRoot = result.data.rootAchieved;
-
-      if (result.data.rootAchieved && result.data.successfulMethod) {
-        this.graph.successfulMethod = {
-          type: result.data.successfulMethod.type,
-          vector: result.data.successfulMethod.vector,
-          command: result.data.successfulMethod.command,
-          timestamp: new Date()
-        };
-        console.log(`[PrivescAgent] ✓ 提权成功！方法: ${result.data.successfulMethod.type}`);
-      } else {
-        console.log(`[PrivescAgent] ✗ 自动提权失败，已尝试 ${result.data.attempts.length} 个方法`);
-      }
+    if (result.success && succeeded) {
+      this.graph.isRoot = true;
+      this.graph.successfulMethod = {
+        type: succeeded.method,
+        vector: succeeded.method,
+        command: '',
+        timestamp: new Date(),
+      };
+      console.log(`[PrivescAgent] ✓ 提权成功！方法: ${succeeded.method}`);
     } else {
-      console.error('[PrivescAgent] 自动提权执行失败:', result.error);
+      console.log(`[PrivescAgent] ✗ 自动提权失败，已尝试 ${attempts.length} 个方法`);
+      if (result.error) console.error('[PrivescAgent] 错误:', result.error);
     }
   }
 
@@ -295,10 +311,14 @@ export class PrivescAgent {
 
     console.log(`[PrivescAgent] 尝试内核漏洞利用: ${exploit.name} (${exploit.cve})`);
 
+    // Find the full KernelExploitResult object matching the chosen exploit
+    const exploitObj = this.graph.kernelExploitObjects.find(k => k.name === exploit.name)
+      ?? this.graph.kernelExploitObjects[0];
+
     const result = await executeKernelExploit(
       this.shellId,
+      exploitObj,
       this.sessionDir,
-      exploit.name
     );
 
     // 记录尝试
@@ -306,19 +326,19 @@ export class PrivescAgent {
       method: 'kernel_exploit',
       vector: exploit.name,
       timestamp: new Date(),
-      success: result.success && result.data?.rootAchieved === true,
-      error: result.error
+      success: result.success && (result.data?.rootObtained === true),
+      error: result.error,
     });
 
     if (result.success && result.data) {
-      this.graph.isRoot = result.data.rootAchieved;
+      this.graph.isRoot = result.data.rootObtained;
 
-      if (result.data.rootAchieved) {
+      if (result.data.rootObtained) {
         this.graph.successfulMethod = {
           type: 'kernel_exploit',
           vector: exploit.name,
-          command: result.data.exploitCommand || '',
-          timestamp: new Date()
+          command: exploit.name,
+          timestamp: new Date(),
         };
         console.log(`[PrivescAgent] ✓ 内核漏洞利用成功！`);
       } else {
@@ -341,10 +361,17 @@ export class PrivescAgent {
     const method = this.graph.vectors.docker[0];
     console.log(`[PrivescAgent] 尝试Docker逃逸: ${method.type}`);
 
+    const dockerInfo = this.graph.dockerEscapeInfo ?? {
+      inContainer: true,
+      privileged: method.type === 'docker',
+      socketMounted: false,
+      timestamp: Date.now(),
+    };
+
     const result = await executeDockerEscape(
       this.shellId,
+      dockerInfo,
       this.sessionDir,
-      method.type
     );
 
     // 记录尝试
@@ -352,19 +379,19 @@ export class PrivescAgent {
       method: 'docker_escape',
       vector: method.type,
       timestamp: new Date(),
-      success: result.success && result.data?.rootAchieved === true,
-      error: result.error
+      success: result.success && (result.data?.hostAccess === true),
+      error: result.error,
     });
 
     if (result.success && result.data) {
-      this.graph.isRoot = result.data.rootAchieved;
+      this.graph.isRoot = result.data.hostAccess;
 
-      if (result.data.rootAchieved) {
+      if (result.data.hostAccess) {
         this.graph.successfulMethod = {
           type: 'docker_escape',
           vector: method.type,
-          command: result.data.escapeCommand || '',
-          timestamp: new Date()
+          command: result.data.method,
+          timestamp: new Date(),
         };
         console.log(`[PrivescAgent] ✓ Docker逃逸成功！`);
       } else {

@@ -1,5 +1,5 @@
-import { executeCommand } from '../../core/shell';
-import { ToolResult } from '../../core/types';
+import { executeCommand } from '../../core/shell.js';
+import type { ToolResult } from '../../core/agentTypes.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -54,6 +54,7 @@ export async function discoverInternalHosts(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `内网主机发现失败: ${error}`
     };
   }
@@ -106,6 +107,7 @@ export async function scanHostPorts(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `端口扫描失败: ${error}`
     };
   }
@@ -155,6 +157,7 @@ export async function collectSSHKeys(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `SSH密钥收集失败: ${error}`
     };
   }
@@ -226,6 +229,7 @@ export async function harvestCredentials(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `凭据收集失败: ${error}`
     };
   }
@@ -299,6 +303,7 @@ export async function attemptSSHLateral(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `SSH横向移动失败: ${error}`
     };
   }
@@ -365,6 +370,7 @@ export async function attemptSMBLateral(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `SMB横向移动失败: ${error}`
     };
   }
@@ -412,6 +418,7 @@ export async function attemptWinRMLateral(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `WinRM横向移动失败: ${error}`
     };
   }
@@ -464,6 +471,7 @@ export async function attemptRDPBrute(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `RDP暴力破解失败: ${error}`
     };
   }
@@ -503,6 +511,7 @@ export async function collectKerberosTickets(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `Kerberos票据收集失败: ${error}`
     };
   }
@@ -527,6 +536,7 @@ export async function enumerateRemoteServices(
     if (result.output.includes('nmap not found')) {
       return {
         success: false,
+        data: null as any,
         error: 'nmap工具不可用'
       };
     }
@@ -554,6 +564,7 @@ export async function enumerateRemoteServices(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `服务枚举失败: ${error}`
     };
   }

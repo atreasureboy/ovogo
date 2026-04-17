@@ -26,6 +26,17 @@ sessions/
 # Progress tracking
 progress_log.json
 ovogogogo_log.json
+ovogo_progress.json
+
+# Runtime artifacts
+hydra.restore
+resume.cfg
+*.restore
+.codex
+
+# Scan findings (contain target data)
+.ovogo/findings/
+.ovogo/.claude_backup/
 
 # Upload scripts (contains tokens)
 upload_to_github.sh

@@ -1,4 +1,4 @@
-import { ToolResult } from '../../core/types';
+import type { ToolResult } from '../../core/agentTypes.js';
 import {
   startMetasploitListener,
   generateMetasploitPayload,
@@ -11,7 +11,7 @@ import {
   interactC2Session,
   generateObfuscatedPayload,
   startPayloadHostingServer
-} from '../tools';
+} from '../tools/index.js';
 
 /**
  * Skill: 部署完整的Metasploit C2基础设施
@@ -133,6 +133,7 @@ export async function deployMetasploitInfrastructure(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `部署Metasploit基础设施失败: ${error}`
     };
   }
@@ -229,6 +230,7 @@ export async function deploySliverInfrastructure(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `部署Sliver基础设施失败: ${error}`
     };
   }
@@ -324,6 +326,7 @@ export async function batchDeployPayloads(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `批量部署Payload失败: ${error}`
     };
   }
@@ -363,6 +366,7 @@ export async function manageC2Sessions(
     if (!listResult.success || !listResult.data) {
       return {
         success: false,
+        data: null as any,
         error: `列出会话失败: ${listResult.error}`
       };
     }
@@ -424,6 +428,7 @@ export async function manageC2Sessions(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `管理C2会话失败: ${error}`
     };
   }
@@ -463,6 +468,7 @@ export async function automateC2Migration(
     if (!currentPidResult.success) {
       return {
         success: false,
+        data: null as any,
         error: '获取当前PID失败'
       };
     }
@@ -481,6 +487,7 @@ export async function automateC2Migration(
     if (!psResult.success) {
       return {
         success: false,
+        data: null as any,
         error: '列出进程失败'
       };
     }
@@ -504,6 +511,7 @@ export async function automateC2Migration(
     if (targetPid === 0) {
       return {
         success: false,
+        data: null as any,
         error: '未找到合适的目标进程'
       };
     }
@@ -521,6 +529,7 @@ export async function automateC2Migration(
     if (!migrateResult.success) {
       return {
         success: false,
+        data: null as any,
         error: `进程迁移失败: ${migrateResult.error}`
       };
     }
@@ -551,12 +560,14 @@ export async function automateC2Migration(
     } else {
       return {
         success: false,
+        data: null as any,
         error: '进程迁移验证失败'
       };
     }
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `自动化C2迁移失败: ${error}`
     };
   }
@@ -680,6 +691,7 @@ export async function establishRedundantC2Channels(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `建立冗余C2通道失败: ${error}`
     };
   }

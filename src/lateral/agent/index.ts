@@ -1,12 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { ToolResult } from '../../core/types';
+import type { ToolResult } from '../../core/agentTypes.js';
 import {
   discoverInternalHosts,
   scanHostPorts,
   collectSSHKeys,
   harvestCredentials,
   collectKerberosTickets
-} from '../tools';
+} from '../tools/index.js';
 import {
   comprehensiveInternalRecon,
   collectAndOrganizeCredentials,
@@ -14,7 +14,7 @@ import {
   batchWindowsLateralMovement,
   intelligentCredentialReuse,
   establishPersistentLateralChannel
-} from '../skills';
+} from '../skills/index.js';
 
 /**
  * 横向移动拓扑图

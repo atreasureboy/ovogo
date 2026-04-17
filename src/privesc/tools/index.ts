@@ -19,14 +19,8 @@ import { join } from 'path'
 
 const execAsync = promisify(exec)
 
-export interface ToolResult<T = unknown> {
-  success: boolean
-  data: T
-  rawOutput?: string
-  error?: string
-  duration: number
-  tool: string
-}
+import type { ToolResult } from '../../core/agentTypes.js'
+export type { ToolResult }
 
 // ── SUID 二进制枚举和利用 ─────────────────────────────────────
 

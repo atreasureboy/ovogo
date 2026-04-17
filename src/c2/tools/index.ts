@@ -1,5 +1,5 @@
-import { executeCommand } from '../../core/shell';
-import { ToolResult } from '../../core/types';
+import { executeCommand } from '../../core/shell.js';
+import type { ToolResult } from '../../core/agentTypes.js';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -57,6 +57,7 @@ exploit -j -z
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `启动Metasploit监听器失败: ${error}`
     };
   }
@@ -107,6 +108,7 @@ export async function generateMetasploitPayload(
     if (result.exitCode !== 0) {
       return {
         success: false,
+        data: null as any,
         error: `生成payload失败: ${result.output}`
       };
     }
@@ -126,6 +128,7 @@ export async function generateMetasploitPayload(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成Metasploit Payload失败: ${error}`
     };
   }
@@ -175,6 +178,7 @@ export async function startSliverServer(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `启动Sliver服务器失败: ${error}`
     };
   }
@@ -205,6 +209,7 @@ export async function generateSliverImplant(
     if (result.exitCode !== 0) {
       return {
         success: false,
+        data: null as any,
         error: `生成Sliver implant失败: ${result.output}`
       };
     }
@@ -224,6 +229,7 @@ export async function generateSliverImplant(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `生成Sliver Implant失败: ${error}`
     };
   }
@@ -272,6 +278,7 @@ export async function startCobaltStrikeServer(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `启动Cobalt Strike服务器失败: ${error}`
     };
   }
@@ -317,6 +324,7 @@ export async function deployPayloadToTarget(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `部署Payload失败: ${error}`
     };
   }
@@ -374,6 +382,7 @@ WantedBy=multi-user.target`;
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `执行Payload失败: ${error}`
     };
   }
@@ -438,6 +447,7 @@ export async function listC2Sessions(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `列出C2会话失败: ${error}`
     };
   }
@@ -473,6 +483,7 @@ export async function interactC2Session(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `与C2会话交互失败: ${error}`
     };
   }
@@ -518,6 +529,7 @@ export async function generateObfuscatedPayload(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `Payload混淆失败: ${error}`
     };
   }
@@ -556,6 +568,7 @@ export async function startPayloadHostingServer(
   } catch (error) {
     return {
       success: false,
+      data: null as any,
       error: `启动HTTP服务器失败: ${error}`
     };
   }

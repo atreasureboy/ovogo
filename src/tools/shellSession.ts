@@ -326,3 +326,66 @@ ShellSession({ action: "exec", session_id: "shell_4444", command: "find / -perm 
     return { content: `Session "${id}" closed.`, isError: false }
   }
 }
+
+// ── Programmatic helper ───────────────────────────────────────────────────────
+
+/**
+ * Execute a command on an active shell session.
+ * Used by agent modules (lateral, c2, report, privesc) to run commands on
+ * established reverse shells without going through the LLM tool loop.
+ */
+export async function executeCommand(
+  shellId: string,
+  command: string,
+  opts: { timeout?: number } = {},
+): Promise<{ output: string; success: boolean; exitCode: number }> {
+  const conn = _sessions.get(shellId)
+  if (!conn) {
+    return { output: `Session "${shellId}" not found`, success: false, exitCode: 1 }
+  }
+  if (!conn.socket) {
+    return { output: `Session "${shellId}" has no active connection`, success: false, exitCode: 1 }
+  }
+
+  const timeout = opts.timeout ?? 8_000
+
+  return new Promise((resolve) => {
+    const socket = conn.socket!
+    const chunks: Buffer[] = []
+    let done = false
+    let stabilize: ReturnType<typeof setTimeout> | null = null
+    let firstByte: ReturnType<typeof setTimeout> | null = null
+
+    const finish = () => {
+      if (done) return
+      done = true
+      if (stabilize) clearTimeout(stabilize)
+      if (firstByte) clearTimeout(firstByte)
+      socket.removeListener('data', onData)
+
+      let output = Buffer.concat(chunks).toString('utf8')
+      output = stripEcho(output, command)
+      output = stripPrompt(output)
+
+      resolve({ output: output.trimEnd(), success: true, exitCode: 0 })
+    }
+
+    const onData = (chunk: Buffer) => {
+      chunks.push(chunk)
+      if (firstByte) { clearTimeout(firstByte); firstByte = null }
+      if (stabilize) clearTimeout(stabilize)
+      stabilize = setTimeout(finish, 400)
+    }
+
+    socket.on('data', onData)
+    firstByte = setTimeout(finish, timeout)
+
+    socket.write(command + '\n', (err) => {
+      if (err) {
+        done = true
+        socket.removeListener('data', onData)
+        resolve({ output: `Write failed: ${err.message}`, success: false, exitCode: 1 })
+      }
+    })
+  })
+}
