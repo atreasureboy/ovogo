@@ -50,6 +50,7 @@ import { SemanticMemory } from '../src/core/semanticMemory.js'
 import { EpisodicMemory } from '../src/core/episodicMemory.js'
 import { ContextBudgetManager } from '../src/core/contextBudget.js'
 import { KnowledgeBase } from '../src/core/knowledgeBase.js'
+import { BattleOrchestrator } from '../src/core/orchestrator.js'
 import { tmuxLayout } from '../src/ui/tmuxLayout.js'
 
 const VERSION = '0.1.0'
@@ -65,6 +66,7 @@ interface Args {
   cwd: string
   help: boolean
   version: boolean
+  orchestrator: boolean
 }
 
 const MAX_RECENT_HISTORY_MESSAGES = 120
@@ -107,12 +109,14 @@ function parseArgs(argv: string[]): Args {
   let cwd = process.env.OVOGO_CWD ?? process.cwd()
   let help = false
   let version = false
+  let orchestrator = false
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     switch (arg) {
       case '--help': case '-h': help = true; break
       case '--version': case '-v': case '-V': version = true; break
+      case '--orchestrator': orchestrator = true; break
       case '--model': case '-m': model = args[++i] ?? model; break
       case '--max-iter': maxIter = parseInt(args[++i] ?? '30', 10); break
       case '--cwd': cwd = args[++i] ?? cwd; break
@@ -120,7 +124,7 @@ function parseArgs(argv: string[]): Args {
         if (!arg.startsWith('-')) task = task ? task + ' ' + arg : arg
     }
   }
-  return { task, model, maxIter, cwd, help, version }
+  return { task, model, maxIter, cwd, help, version, orchestrator }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -137,6 +141,7 @@ OPTIONS
   -m, --model <model>    LLM model  (env: OVOGO_MODEL, default: gpt-4o)
   --max-iter <n>         Think-Act-Observe max cycles  (env: OVOGO_MAX_ITER, default: 200)
   --cwd <path>           Working directory  (env: OVOGO_CWD, default: cwd)
+  --orchestrator         State machine mode — LLM supervisor dispatches agents across pentest phases
   -v, --version          Print version and exit
   -h, --help             Show this help
 
@@ -583,7 +588,7 @@ async function runTask(
 // ─────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { task, model, maxIter, cwd: rawCwd, help, version } = parseArgs(process.argv)
+  const { task, model, maxIter, cwd: rawCwd, help, version, orchestrator: useOrchestrator } = parseArgs(process.argv)
   const cwd = resolve(rawCwd)
 
   // Load skills early so --help can list them
@@ -798,6 +803,29 @@ async function main(): Promise<void> {
   process.on('exit', cleanup)
   process.on('SIGTERM', () => { cleanup(); process.exit(0) })
   process.on('SIGHUP',  () => { cleanup(); process.exit(0) })
+
+  // ── Orchestrator mode: state machine supervisor ──────────────
+  if (useOrchestrator) {
+    const primaryTarget = engagement?.targets?.[0] ?? ''
+    const orchestratorInstance = new BattleOrchestrator(
+      {
+        model,
+        apiKey,
+        baseURL: process.env.OPENAI_BASE_URL,
+        sessionDir,
+        primaryTarget: primaryTarget || undefined,
+        engagement,
+        cwd,
+      },
+      renderer,
+      engine,
+      maxIter,
+    )
+
+    const initialTask = task ?? '对目标进行完整渗透测试'
+    await orchestratorInstance.run(initialTask)
+    return
+  }
 
   // Pipe input?
   if (!process.stdin.isTTY) {

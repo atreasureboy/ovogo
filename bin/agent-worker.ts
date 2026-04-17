@@ -12,7 +12,7 @@ import { ExecutionEngine } from '../src/core/engine.js'
 import { Renderer } from '../src/ui/renderer.js'
 import type { EngineConfig, OpenAIMessage } from '../src/core/types.js'
 import { getRedTeamAgentPrompt, type RedTeamAgentType } from '../src/prompts/agentPrompts.js'
-import type { AgentExecutionResult, Finding, Port, WebService, Credential, Shell } from '../src/core/graph/types.js'
+import type { AgentExecutionResult, Finding, Port, WebService, Credential, Shell } from '../src/core/agentResultTypes.js'
 
 // ── 参数解析 ──────────────────────────────────────────────────
 
