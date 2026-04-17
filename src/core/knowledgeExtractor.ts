@@ -69,6 +69,14 @@ export class KnowledgeExtractor {
     this.kb = kb
   }
 
+  /** Reset real-time state between user tasks in the REPL loop */
+  reset(): void {
+    this.toolCallSequence = []
+    this.attackChainSteps = []
+    this.detectedCves = new Set()
+    this.shellAcquired = false
+  }
+
   /**
    * Real-time extraction — called after each successful tool execution.
    * Detects CVE exploitation, shell acquisition, and tool chain building.

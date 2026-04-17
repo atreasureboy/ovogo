@@ -204,9 +204,9 @@ const COORDINATOR_BASH_WHITELIST = [
   // Process monitoring
   /^ps\b/, /^top\b/, /^htop\b/, /^uptime\b/, /^free\b/,
   // Identity / system info
-  /^whoami\b/, /^id\b/, /^hostname\b/, /^uname\b/, /^date\b/, /^who\b/, /^w\b/,
+  /^whoami\b/, /^id\b/, /^hostname\b/, /^uname\b/, /^who\b/, /^w\b/,
   // Safe output
-  /^echo\b/, /^printf\b/, /^date\b/,
+  /^echo\b/, /^printf\b/,
   // Log / session monitoring
   /^sed\s+.*-n\b/,  // sed -n is safe (no -i)
   /^awk\b/,
@@ -397,6 +397,9 @@ export class ExecutionEngine {
     history: OpenAIMessage[],
   ): Promise<{ result: TurnResult; newHistory: OpenAIMessage[] }> {
     const planMode = this.config.planMode ?? false
+
+    // Reset knowledge extractor state at the start of each new user turn
+    this.knowledgeExtractor?.reset()
 
     // Build system prompt: optional plan-mode prefix + pre-assembled prompt
     const baseSystemPrompt = this.config.systemPrompt ?? ''

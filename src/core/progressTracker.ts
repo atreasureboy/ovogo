@@ -37,7 +37,7 @@ export class ProgressTracker {
 
     // Start periodic updates if not already running
     if (!this.updateInterval) {
-      this.updateInterval = setInterval(() => this.cleanupStaleTasks(), 5 * 60 * 1000); // Every 5 minutes
+      this.updateInterval = setInterval(() => this.cleanupStaleTasks(), 5 * 60 * 1000).unref(); // Every 5 minutes
     }
   }
 

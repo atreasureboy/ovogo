@@ -296,7 +296,7 @@ async function handleBuiltin(
   renderer: Renderer,
   cwd: string,
   skills: Map<string, Skill>,
-): Promise<boolean | 'exit'> {
+): Promise<boolean | 'exit' | { skill: Skill; args: string }> {
   const parts = cmd.split(/\s+/)
   const command = parts[0]
   const rest = parts.slice(1).join(' ')
@@ -371,7 +371,7 @@ async function handleBuiltin(
       const skillName = command.slice(1) // strip leading /
       const skill = skills.get(skillName)
       if (skill) {
-        return { skill, args: rest } as unknown as boolean // signal to caller
+        return { skill, args: rest }
       }
       renderer.warn(`Unknown command: ${command}. Type /help for available commands.`)
       return true
@@ -529,8 +529,8 @@ async function runRepl(
       }
 
       // Skill matched — result is {skill, args}
-      if (result !== true && result !== false && typeof result === 'object') {
-        const { skill, args } = result as unknown as { skill: Skill; args: string }
+      if (typeof result === 'object') {
+        const { skill, args } = result
         const expandedPrompt = expandSkillPrompt(skill, args)
         renderer.info(`Running skill: /${skill.name}${args ? ' ' + args : ''}`)
         hookRunner.runUserPromptSubmit(trimmed)

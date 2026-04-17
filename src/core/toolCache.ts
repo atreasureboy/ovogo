@@ -53,7 +53,7 @@ export class ToolCache {
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
         normalized[key] = this.normalizeInput(value as Record<string, unknown>);
       } else if (Array.isArray(value)) {
-        normalized[key] = value.sort();
+        normalized[key] = [...(value as unknown[])].sort().map(v => typeof v === 'string' ? v : JSON.stringify(v));
       } else {
         normalized[key] = value;
       }
@@ -136,7 +136,7 @@ export class ToolCache {
    * Start periodic cleanup of expired entries
    */
   private startCleanupInterval(): void {
-    this.cleanupInterval = setInterval(() => this.cleanupExpired(), 30 * 60 * 1000); // Every 30 minutes
+    this.cleanupInterval = setInterval(() => this.cleanupExpired(), 30 * 60 * 1000).unref(); // Every 30 minutes
   }
 
   /**
