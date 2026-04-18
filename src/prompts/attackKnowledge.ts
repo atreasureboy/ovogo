@@ -660,12 +660,116 @@ export function getAttackKnowledgeSection(): string {
 
 ---
 
-## 十三点五、EDR/AV 绕过技术
+## 十三点五、EDR/AV 绕过技术（Havoc C2 原理详解）
 
 ### 检测规避基础
-1. **识别防护**: 先用BypassDetector检测WAF/EDR/沙箱类型
+1. **识别防护**: 先用EnvAnalyzer检测WAF/EDR/沙箱类型
 2. **针对性绕过**: 根据检测结果选择对应绕过技术
 3. **分阶段测试**: 从最简单的绕过方法开始测试，逐步升级
+
+### Havoc C2 绕过原理详解
+
+#### 原理1: 间接系统调用 (Indirect Syscall)
+**问题**: EDR通过hook ntdll.dll的导出函数（如NtWriteVirtualMemory、NtCreateThreadEx）监控恶意行为。
+每次调用这些API时，EDR先执行自己的代码检查行为。
+
+**Havoc解决方案**:
+1. 在内存中解析ntdll.dll，找到SYSCALL指令的实际位置
+2. 提取SSN（System Service Number，系统服务号）— 这是内核识别"要执行什么操作"的编号
+3. 构建stub直接跳到syscall指令，绕过EDR hook的字节
+4. 执行syscall直接进入内核，EDR无法拦截
+
+**为什么有效**: EDR只能hook用户层（Ring 3），无法hook内核层（Ring 0）。
+系统调用从用户层跳到内核层时，直接执行内核代码，不经过EDR。
+
+**SSN提取算法**:
+- 扫描ntdll中目标函数的起始字节
+- 如果是"mov r10, rcx; mov eax, <SSN>"，则SSN在偏移4处（4字节）
+- 如果函数以"jmp"开头，说明被hook了，跳到下一个
+- 继续直到找到未hook的syscall stub
+
+#### 原理2: 硬件断点AMSI/ETW绕过
+**问题**: 传统AMSI绕过通过内存patch（修改amsi.dll字节），但EDR hook了NtProtectVirtualMemory，
+可以检测到内存权限变更。
+
+**Havoc解决方案**: 使用CPU硬件调试寄存器（Dr0-Dr3）
+1. 设置Dr0 = AmsiScanBuffer函数的入口地址
+2. 注册VEH（Vector Exception Handler）处理器
+3. 当任何代码调用AmsiScanBuffer时，CPU触发断点异常
+4. VEH处理器拦截异常，修改执行流跳过扫描
+5. 整个过程**不修改任何内存字节**
+
+**为什么有效**:
+- 硬件断点是CPU寄存器，不是内存，EDR无法扫描
+- VEH是合法的Windows异常处理API
+- 不需要VirtualProtect调用，没有内存权限变更
+- 没有内存hook可供检测
+
+#### 原理3: 睡眠混淆 (Sleep Obfuscation — Ekko/Zilean/Foliage)
+**问题**: EDR hook了NtDelayExecution（Sleep API）。当恶意软件睡眠时：
+- EDR记录线程调用了Sleep
+- 线程醒来后继续恶意行为
+- EDR可以在睡眠期间dump内存查找加密段
+
+**Havoc解决方案**:
+1. 使用RC4加密整个payload在内存中的映像（每次睡眠用不同密钥）
+2. 设置ROP链（Return-Oriented Programming），在睡眠完成后自动解密
+3. 通过ROP链调用NtDelayExecution（不是直接调用）
+4. 睡眠期间：内存已加密，EDR dump找不到恶意内容
+5. 睡眠结束后：ROP链解密映像，继续执行
+
+**变体**:
+- **Ekko**: 使用NtWaitForSingleObject + ROP链
+- **Zilean**: 使用NtCreateTimer + NtSetTimer + NtWaitForSingleObject
+- **Foliage**: 使用回调方式（RtlCreateTimer）
+
+#### 原理4: 栈欺骗 (Stack Spoofing)
+**问题**: EDR检查线程栈时，能看到：
+- 返回地址指向你的payload（不是合法DLL）
+- 调用链显示恶意来源
+- 这是EDR区分合法软件和恶意软件的主要方法
+
+**Havoc解决方案**: 返回地址欺骗
+1. 在合法DLL（kernel32、ntdll）中找到"gadget"（call指令）
+2. 使用该gadget地址作为栈上的返回地址
+3. syscall完成后返回到gadget（合法DLL）
+4. gadget跳回你的代码
+5. EDR栈遍历显示：你的代码 → kernel32 → ntdll → 内核（看起来合法）
+
+**实现**: 使用Spoof.x64.asm设置假栈帧，复制NT_TIB（线程信息块）
+
+#### 原理5: Hash-based API解析
+**问题**: 按名称导入API（LoadLibrary、VirtualAlloc等）会在二进制中留下字符串。
+静态分析工具（YARA、ClamAV）扫描这些字符串。
+
+**Havoc解决方案**: DJB2 Hash + PEB遍历
+1. 编译时将每个API名hash为DJB2值（如"LoadLibraryA" → 0x8F5C7A3E）
+2. 运行时解析PEB（进程环境块）找到已加载模块
+3. 对每个模块遍历导出表
+4. hash每个导出名，与目标hash比较
+5. 匹配时获得函数地址
+
+**为什么有效**:
+- 二进制中零API名字符串
+- 无IAT（导入地址表）条目
+- 运行时动态解析，无可静态分析内容
+
+#### 原理6: 编译时指纹消除
+Havoc使用MinGW交叉编译，在编译时消除二进制特征：
+\`\`\`
+x86_64-w64-mingw32-gcc \
+  -Os                          # 大小优化 — 二进制越小越不易被扫描
+  -fno-asynchronous-unwind-tables  # 去除栈展开信息 — EDR无法遍历你的栈
+  -fno-ident                   # 去除编译器标识 — 避免GCC指纹
+  -falign-functions=1          # 无函数对齐 — 破坏签名匹配
+  -fpack-struct=8              # 结构体8字节对齐
+  --no-seh                     # 禁用SEH — 防止SEH分析
+  --gc-sections                # 去除死代码
+  -s                           # 去除所有符号
+  -nostdlib                    # 无标准库链接 — 零libc导入
+\`\`\`
+
+编译后处理：替换PE魔数字节、字符串替换、修改镜像大小。
 
 ### PowerShell AMSI 绕过速查
 - **反射补丁**: \`\`[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)\`\`

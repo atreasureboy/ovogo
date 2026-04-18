@@ -24,6 +24,8 @@ import { DocReadTool } from './docRead.js'
 import { KnowledgeQueryTool } from './knowledgeQuery.js'
 import { BypassDetectorTool } from './bypassDetector.js'
 import { PayloadFactoryTool } from './payloadFactory.js'
+import { EnvAnalyzerTool } from './envAnalyzer.js'
+import { TechniqueGeneratorTool } from './techniqueGenerator.js'
 import type { KnowledgeBase } from '../core/knowledgeBase.js'
 
 export function createTools(extraTools: Tool[] = [], knowledgeBase?: KnowledgeBase): Tool[] {
@@ -50,8 +52,12 @@ export function createTools(extraTools: Tool[] = [], knowledgeBase?: KnowledgeBa
     new MultiScanTool(),
     new C2Tool(),
     new DocReadTool(),
+    // Legacy names (backward compat)
     new BypassDetectorTool(),
     new PayloadFactoryTool(),
+    // New neutral-named tools (preferred)
+    new EnvAnalyzerTool(),
+    new TechniqueGeneratorTool(),
     ...extraTools,
   ]
 
@@ -91,4 +97,6 @@ export {
   C2Tool,
   BypassDetectorTool,
   PayloadFactoryTool,
+  EnvAnalyzerTool,
+  TechniqueGeneratorTool,
 }

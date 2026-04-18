@@ -262,6 +262,8 @@ const CONCURRENCY_SAFE_TOOLS = new Set([
   'TmuxSession',  // parallel — new / list / capture on different sessions
   'BypassDetector', // parallel — read-only detection probes
   'PayloadFactory',   // parallel — text-only payload generation
+  'EnvAnalyzer',      // parallel — read-only environment analysis
+  'TechniqueGenerator', // parallel — text-only technique generation
 ])
 
 /**
