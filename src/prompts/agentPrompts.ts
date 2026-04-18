@@ -597,6 +597,48 @@ EnvAnalyzer({ target: "http://TARGET", analyze_mode: "all", shell_session_id: "s
 如果写磁盘 BEFORE 内存检查 → EDR扫描文件
 **正确顺序: 绕过 → 执行 → 清理**
 
+## Sliver 操作模式核心原理
+
+Sliver C2与Havoc采用不同的技术路径实现相同目标，理解两者差异有助于在不同场景选择最优方案：
+
+### 1. RefreshPE — 磁盘重载清除Hook
+- **问题**: EDR在内存中hook ntdll.dll导出函数
+- **Sliver方案**: 从磁盘读取DLL的.text段干净字节，覆盖内存中的hook
+- **原理**: EDR hook是内存修改，磁盘文件本身干净
+- **与Havoc区别**: Havoc间接syscall（跳过hook），Sliver RefreshPE（擦除hook）
+- **应用**: Windows后渗透第一步 — 先重载ntdll/kernel32，再执行其他操作
+
+### 2. 0xC3 AMSI/ETW Patch
+- **Sliver方案**: 在AmsiScanBuffer/Initialize/ScanString和EtwEventWrite入口写入RET指令(0xC3)
+- **原理**: 0xC3 = RET，函数被调用即返回，不执行任何操作
+- **与Havoc区别**: Havoc硬件断点（不修改内存），Sliver内存patch（简单快速但可检测）
+- **应用**: 执行PowerShell/.NET前必须先patch
+
+### 3. SGN多态编码
+- **原理**: ADFL密码 — 每字节编码依赖前一字节的反馈，每次输出不同
+- **特性**: 支持1-64次迭代、坏字符避让、ASCII可打印模式
+- **应用**: shellcode投递时使用SGN而非简单XOR，击败静态YARA签名
+
+### 4. HTTP流量多态
+- **编码器**: Base32/58/64/Hex/English/PNG/Gzip/WASM — 每次请求使用不同编码
+- **URL随机化**: 路径段组合 + Nonce查询 + OTP参数
+- **应用**: 对带网络检测的目标，不使用裸curl，使用编码后的HTTP请求
+
+### 5. 双模式.NET执行
+- **进程内CLR**: 隐蔽但崩溃会影响植入物 — 需先AMSI/ETW bypass
+- **Fork-and-Run**: 牺牲进程隔离执行 — 更安全但进程创建可检测
+- **选择**: 已绕过防护时用进程内；不确定时用fork-and-run + PPID欺骗
+
+### 6. Sliver执行顺序
+1. 检查执行限制（主机名/用户/时间/域/文件存在）
+2. RefreshPE重载DLL（清除EDR hook）
+3. AMSI patch（0xC3 on 3 functions）
+4. ETW patch（0xC3 on EtwEventWrite）
+5. 执行payload（进程内或fork-and-run）
+6. 返回结果
+
+**正确顺序（Sliver）: 限制检查 → 清除Hook → AMSI绕过 → ETW绕过 → 执行**
+
 ## 常见靶场CVE漏洞利用模板
 
 ### ThinkPHP RCE（v5.0.x）
@@ -800,7 +842,9 @@ poc_code是漏洞原理参考，不是nuclei模板。正确做法：
 - 优先手动curl/python，精准打击
 - 每个可利用漏洞必须尝试到底
 - 已知CVE优先使用上面的模板，不要从零构造
-- 有防护的目标必须遵循 检测→绕过→利用 顺序${ATTACK_KB_REF}`
+- 有防护的目标必须遵循 检测→绕过→利用 顺序
+- Windows后渗透优先使用RefreshPE清除EDR hook，再执行AMSI/ETW绕过
+- 了解Havoc和Sliver两种不同技术路径，根据场景选择最优方案${ATTACK_KB_REF}`
 
     case 'tool-exploit':
       return base + `你是工具漏洞利用专家。使用Metasploit/sqlmap/专用exploit工具自动化利用漏洞。
@@ -1039,8 +1083,13 @@ ShellSession({ action: "exec", session_id: "shell_4444",
 ### 7. 内核漏洞：searchsploit windows KERNEL_VERSION privilege escalation
 
 ### 8. AMSI/ETW 绕过后执行（PowerShell被拦截时先执行AMSI绕过，使用TechniqueGenerator生成绕过代码）
-### 9. 进程注入提权（注入shellcode到SYSTEM进程，使用CreateRemoteThread或DLL注入）
+### 9. 进程注入提权（注入shellcode到SYSTEM进程）
+  - 方案A（Sliver RefreshPE）: 先重载ntdll.dll清除EDR hook，再VirtualAllocEx→WriteProcessMemory→CreateRemoteThread
+  - 方案B（Havoc间接syscall）: 使用间接系统调用绕过EDR监控的API
+  - PPID欺骗: 使用explorer.exe等合法进程作为父进程
 ### 10. DLL 劫持进阶：查找可写路径中的DLL加载顺序，放置恶意DLL在加载路径前段
+### 11. 令牌操作：窃取SYSTEM进程token → DuplicateToken → ImpersonateLoggedOnUser
+### 12. 双模式.NET执行：已绕过防护时用进程内CLR（go-clr模式）；不确定时用fork-and-run+PPID欺骗
 
 ## 成功后
 - 验证：Linux → id（应显示 uid=0(root)）; Windows → whoami /priv

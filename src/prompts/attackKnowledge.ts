@@ -798,7 +798,160 @@ x86_64-w64-mingw32-gcc \
 
 ---
 
-## 十四、攻击链组合公式 (Attack Chain Recipes)
+## 十四、Sliver C2 技术原理（与Havoc互补的不同实现路径）
+
+### 1. RefreshPE — 磁盘重载清除EDR Hook（区别于Havoc间接系统调用）
+
+**核心原理**: EDR的hook是在内存中修改ntdll.dll的导出函数前几个字节（JMP到EDR监控代码）。磁盘上的DLL文件本身是干净的。
+
+**Sliver实现** (evasion/evasion_windows.go):
+\`\`\`go
+func RefreshPE(name string) error {
+    f, _ := pe.Open(name)         // 从磁盘打开DLL（如ntdll.dll）
+    section := f.Section(".text")  // 提取.text段
+    cleanBytes, _ := section.Data() // 读取磁盘上的干净字节
+    // VirtualProtect → 用干净字节覆盖内存中的.text → 恢复权限
+}
+\`\`\`
+
+**工作流程**:
+1. 从 C:\\Windows\\System32\\ntdll.dll 读取磁盘文件
+2. 解析PE头找到.text段的文件偏移和大小
+3. 加载DLL到内存，获取基址
+4. 计算.text在内存中的位置（基址 + RVA）
+5. VirtualProtect改为RWX权限
+6. 用磁盘干净字节覆盖内存中的.text段
+7. 恢复原始权限 — 所有EDR hook被清除
+
+**与Havoc对比**:
+- Havoc: 间接系统调用（提取SSN，跳过hook直接syscall）— hook仍然存在
+- Sliver: 从磁盘重载（覆盖内存中的hook）— hook被彻底擦除
+- 两者互补：RefreshPE用于初始清理，间接系统调用用于运行时新hook
+
+**操作顺序**: RefreshPE → AMSI patch → ETW patch → 执行payload
+
+### 2. AMSI/ETW 0xC3 Patch（区别于Havoc硬件断点）
+
+**Sliver实现** (taskrunner/task_windows.go):
+\`\`\`go
+func patchAmsi() error {
+    amsiScanBuffer := windows.NewLazyDLL("amsi.dll").NewProc("AmsiScanBuffer")
+    amsiInitialize := windows.NewLazyDLL("amsi.dll").NewProc("AmsiInitialize")
+    amsiScanString := windows.NewLazyDLL("amsi.dll").NewProc("AmsiScanString")
+    patch := byte(0xC3)  // RET指令
+    // VirtualProtect → 写入0xC3 → 恢复权限
+}
+
+func patchEtw() error {
+    etwEventWrite := windows.NewLazyDLL("ntdll.dll").NewProc("EtwEventWrite")
+    // 同样0xC3 patch
+}
+\`\`\`
+
+**为什么是0xC3**: 0xC3是x64的RET（返回）指令。函数被patch后，调用即返回，什么都不执行。
+- AmsiScanBuffer返回成功（不扫描）
+- EtwEventWrite返回成功（不记录事件）
+
+**与Havoc对比**:
+- Havoc: 硬件断点（Dr0-Dr3 + VEH异常处理）— 不修改内存
+- Sliver: 0xC3内存patch — 简单快速但可被检测
+- Havoc更隐蔽，Sliver更简单
+
+### 3. SGN (Shikata-Ga-Nai) 多态编码
+
+**原理**: 使用加法反馈线性（ADFL）密码，每次编码结果不同（多态性）。
+
+**编码过程**:
+1. 生成随机seed
+2. ADFL编码: byte[i]编码后 = (byte[i] + key) XOR 前一个编码字节
+3. 每个字节编码依赖前一个编码结果（反馈链）
+4. 多态解码器前缀 — 每次生成的解码器也不同
+5. 最多64次重试以避开坏字符（null、空格等）
+
+**特性**:
+- 同一shellcode每次编码输出不同（击败静态YARA签名）
+- 支持1-64次迭代编码（每层增加一个编码层）
+- ASCII可打印模式 — 可嵌入HTTP header、cookie等字符串上下文
+- x86/x64双架构支持
+
+**与简单XOR对比**:
+| 简单XOR | SGN |
+|---------|-----|
+| 固定密钥（如0xAB） | 每次随机seed |
+| 相同输入→相同输出 | 相同输入→不同输出（多态） |
+| 解码器固定 | 解码器多态 |
+| 无坏字符处理 | 重试避开坏字符 |
+
+### 4. HTTP流量多态编码（Sliver独有）
+
+**支持的编码器**: Base64 / Base58 / Base32 / Hex / English Words / PNG隐写 / Gzip / WASM自定义
+
+**URL随机化**:
+1. **路径段组合**: 随机拼接路径 — POST /api/v1/users/login 而非固定 /beacon
+2. **Nonce查询参数**: 随机字符插入数字 — ?id=12a3b45
+3. **OTP查询参数**: 一次性随机参数 — ?token=abc123&session=def456
+4. **User-Agent**: 每植入物唯一Chrome UA
+
+**核心原则**: 每次HTTP请求看起来都不同，无法用网络签名检测
+
+### 5. PE元数据伪造（Donor克隆）
+
+**Sliver实现** (server/generate/spoof.go):
+1. **Rich Header克隆**: 从合法二进制文件（如notepad.exe）复制Rich Header
+2. **时间戳克隆**: 所有PE时间戳与donor一致
+3. **数字签名表复制**: 复制签名表（签名无效但存在可降低怀疑）
+4. **资源段注入**: 复制图标、manifest、版本信息（带RVA修复）
+5. **PE校验和重算**: 修复checksum
+
+**原理**: 混入合法软件群，不突出自身特征
+
+### 6. Go模板条件编译（死代码消除）
+
+**原理**: Sliver使用Go text/template渲染植入源码，条件编译:
+\`\`\`go
+// {{if .Config.IncludeHTTP}}
+import "net/http"
+// {{end}}
+\`\`\`
+
+- 只编译需要的C2通道 — 无DNS代码如果没选DNS
+- 每个构建唯一 — 不同配置产生不同二进制
+- 配合garble（-seed=random -literals -tiny）符号混淆
+- 导入路径重命名为无关包名
+
+### 7. 双模式.NET执行
+
+**模式一: 进程内CLR宿主** (--in-process):
+- 使用go-clr库在当前进程加载CLR
+- ICLRMetaHost → AppDomain → Load_3（从字节数组加载）
+- AMSI/ETW bypass在CLR加载前执行
+- 程序集按SHA256缓存（避免重复加载）
+
+**模式二: Fork-and-Run**（默认）:
+- 生成牺牲进程（notepad.exe）
+- Donut转换.NET为shellcode
+- VirtualAllocEx → WriteProcessMemory → CreateRemoteThread
+- PPID欺骗（伪造父进程为explorer.exe）
+- 完成后杀死宿主进程
+
+### 8. 扩展系统（按需加载）
+
+**反射DLL** (memmod):
+- 内存中加载DLL，不写磁盘
+- memmod.LoadLibrary(data) → 解析PE头 → 解析导入表 → 调用入口点
+
+**WASM扩展** (wazero):
+- WebAssembly沙箱环境
+- 纯Go运行时，无需CGO
+- 适合加载小型工具
+
+**BOF/COFF加载**:
+- .o文件通过COFF loader扩展执行
+- 参数序列化为BOFArgsBuffer
+
+---
+
+## 十五、攻击链组合公式 (Attack Chain Recipes)
 
 ### 链 1：信息泄露 → 凭证 → Shell
 1. ffuf 发现 /.env → curl 读取 → 获取数据库密码
