@@ -41,6 +41,24 @@ interface RunningEntry {
   startedAt: number
 }
 
+// ─── Timeout configuration ──────────────────────────────────────────────────
+
+const DEFAULT_TASK_TIMEOUT_MS = 30 * 60 * 1000  // 30 minutes
+
+const AGENT_TYPE_TIMEOUTS: Record<string, number> = {
+  'manual-exploit': 45 * 60 * 1000,  // 45 min — complex exploit chains
+  'tool-exploit':   45 * 60 * 1000,  // 45 min — msf/sliver can be slow
+  'recon':          20 * 60 * 1000,  // 20 min — subdomain/port scans
+  'vuln-scan':      60 * 60 * 1000,  // 60 min — nuclei full templates
+  'lateral':        45 * 60 * 1000,  // 45 min — lateral movement chains
+  'privesc':        30 * 60 * 1000,  // 30 min — privilege escalation
+  'report':         15 * 60 * 1000,  // 15 min — report generation
+}
+
+function getTimeoutForAgentType(agentType: string): number {
+  return AGENT_TYPE_TIMEOUTS[agentType] ?? DEFAULT_TASK_TIMEOUT_MS
+}
+
 // ─── Resource extraction ────────────────────────────────────────────────────
 
 const IP_RE = /\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/
@@ -160,12 +178,29 @@ export class AsyncTaskScheduler {
     return true
   }
 
-  /** Launch a task as a background Promise */
+  /** Launch a task as a background Promise with timeout */
   private launchTask(task: SchedulerTask): void {
-    const promise = this.engine.runTurn(
+    const timeoutMs = getTimeoutForAgentType(task.agentType)
+
+    const taskPromise = this.engine.runTurn(
       this.buildTaskPrompt(task),
       [],
     ).then(({ result }) => ({ task, result }))
+
+    const timeoutPromise = new Promise<{ task: SchedulerTask; result: { output: string; stopped: boolean; reason: string } }>((resolve) => {
+      setTimeout(() => {
+        resolve({
+          task,
+          result: {
+            output: `[任务超时] ${task.agentType} 任务执行超过 ${timeoutMs / 60000} 分钟，自动标记为超时。任务可能仍在后台运行。`,
+            stopped: true,
+            reason: 'timeout',
+          },
+        })
+      }, timeoutMs)
+    })
+
+    const promise = Promise.race([taskPromise, timeoutPromise])
 
     promise
       .then(({ task, result }) => {
@@ -257,8 +292,9 @@ export class AsyncTaskScheduler {
       lines.push('## 当前运行中的任务')
       for (const entry of this.running.values()) {
         const elapsed = Math.round((Date.now() - entry.startedAt) / 60000)
+        const timeoutMin = Math.round(getTimeoutForAgentType(entry.task.agentType) / 60000)
         const resource = entry.task.targetResource ? ` → ${entry.task.targetResource}` : ''
-        lines.push(`- [running] ${entry.task.agentType}: ${entry.task.prompt.slice(0, 80)}... (已运行 ${elapsed}min${resource})`)
+        lines.push(`- [running] ${entry.task.agentType}: ${entry.task.prompt.slice(0, 80)}... (已运行 ${elapsed}min / 超时 ${timeoutMin}min${resource})`)
       }
     }
 

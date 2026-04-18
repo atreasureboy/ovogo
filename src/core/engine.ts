@@ -260,6 +260,8 @@ const CONCURRENCY_SAFE_TOOLS = new Set([
   'C2',          // parallel — deploy_listener / get_ip / list_sessions are safe
   'ShellSession', // parallel — listen / list / exec on different sessions
   'TmuxSession',  // parallel — new / list / capture on different sessions
+  'BypassDetector', // parallel — read-only detection probes
+  'PayloadFactory',   // parallel — text-only payload generation
 ])
 
 /**

