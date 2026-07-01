@@ -530,6 +530,38 @@ Ovogo 在 v0.2.0 起增加了一套面向生产使用的工程化基础设施层
 >
 > 完整 schema 见 `.ovogo/settings.json.example`；可用 `--doctor --strict` 在 CI 中校验配置合法性。
 
+#### 持久化权限规则 (`.ovogo/permissions.json`)
+
+除 `--permission-mode` 之外，Ovogo 还支持**持久化的 allow/deny 规则**，在每次工具调用前**优先**评估：
+
+```json
+{
+  "allow": [
+    "Read",
+    "Glob",
+    "Grep",
+    "Bash(nmap*)",
+    "Bash(scan*)"
+  ],
+  "deny": [
+    "Bash(**rm -rf**)",
+    "Bash(**mkfs**)",
+    "Bash(**dd **)",
+    "Write(/etc/**)",
+    "Write(/boot/**)"
+  ]
+}
+```
+
+规则格式：`ToolName(glob-pattern)`，bare `ToolName` 匹配该工具的任意输入。
+Glob 语义：`*` 不跨 `/`，`**` 跨 `/`，`?` 匹配单字符。
+
+求值顺序：**deny 优先于 allow**，命中的 allow 短路所有后续检查。
+规则从项目级 `.ovogo/permissions.json` 与全局 `~/.ovogo/permissions.json` 合并加载（项目级覆盖全局）。
+完整范例见 `.ovogo/permissions.json.example`。
+
+`--permission-mode ask` 在遇到非只读工具时会**交互式提示用户**（`[y/N]`），非 TTY 输入（CI / pipe）安全降级为 deny。
+
 ---
 
 ## 快速开始
