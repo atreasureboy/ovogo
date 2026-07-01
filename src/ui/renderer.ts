@@ -16,6 +16,7 @@
 
 import { createWriteStream } from 'fs'
 import type { WriteStream } from 'fs'
+import { redactText } from '../core/redaction.js'
 
 // ─────────────────────────────────────────────────────────────
 // ANSI helpers
@@ -71,6 +72,10 @@ const CURSOR = {
   show: `${ESC}?25h`,
   clearLine: `${ESC}2K`,
   clearToEnd: `${ESC}0K`,
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -171,9 +176,11 @@ export class Renderer {
   /** Whether the output stream is a real TTY */
   private isTTY: boolean
 
-  constructor(options?: { stream?: NodeJS.WritableStream }) {
+  constructor(options?: { stream?: NodeJS.WritableStream; redactOutput?: boolean }) {
     const stream = options?.stream ?? process.stdout
-    this.write = (s: string) => { stream.write(s) }
+    this.write = (s: string) => {
+      stream.write(options?.redactOutput ? redactText(stripAnsi(s)) : s)
+    }
     this.isTTY = (stream as NodeJS.WriteStream).isTTY === true
     this.termWidth = this.isTTY ? ((stream as NodeJS.WriteStream).columns ?? 80) : 80
     if (this.isTTY) {
@@ -185,7 +192,7 @@ export class Renderer {
 
   static forFile(filePath: string): Renderer {
     const fileStream = createWriteStream(filePath, { flags: 'a' }) as unknown as NodeJS.WritableStream
-    return new Renderer({ stream: fileStream })
+    return new Renderer({ stream: fileStream, redactOutput: true })
   }
 
   // ── Utility ──────────────────────────────────────────────────

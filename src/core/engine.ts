@@ -20,7 +20,6 @@
  *    as a user message before the next main LLM call.
  */
 
-import OpenAI from 'openai'
 import type {
   EngineConfig,
   OpenAIMessage,
@@ -29,7 +28,15 @@ import type {
   ToolResult,
   TurnResult,
 } from './types.js'
-import { createTools, findTool, getToolDefinitions } from '../tools/index.js'
+import {
+  createTools,
+  findTool,
+  getToolDefinitions,
+  isCacheableTool,
+  isConcurrencySafeTool,
+  isLongRunningTool,
+  isPlanModeTool,
+} from '../tools/index.js'
 import { getPlanModePrefix } from '../prompts/system.js'
 import type { Renderer } from '../ui/renderer.js'
 import { maybeCompact, calculateContextState, MODEL_MAX_CONTEXT_TOKENS } from './compact.js'
@@ -38,8 +45,13 @@ import { ToolCache } from './toolCache.js'
 import type { EventLogEntry } from './eventLog.js'
 import { ContextBudgetManager, CompressionStrategy } from './contextBudget.js'
 import { KnowledgeExtractor } from './knowledgeExtractor.js'
+import { PermissionManager } from './permissionManager.js'
+import { OpenAICompatibleModelClient, type ChatStreamChunk, type ModelClient } from './modelClient.js'
+import { partitionToolCalls } from './toolScheduler.js'
+import { ArtifactStore } from './artifactStore.js'
 
 const MAX_TOOL_RESULT_LENGTH = 20_000
+const DEFAULT_MAX_CONCURRENT_TOOL_CALLS = 8
 
 // ── Critic configuration ─────────────────────────────────────────────────────
 /** Run critic every N iterations (only when there are enough messages to review) */
@@ -139,15 +151,6 @@ interface ParsedToolCall {
   input: Record<string, unknown>
 }
 
-// Tool batch for parallel vs serial scheduling
-interface ToolBatch {
-  safe: boolean
-  calls: ParsedToolCall[]
-}
-
-/** Plan mode — tools allowed in read-only analysis */
-const PLAN_MODE_TOOLS = new Set(['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'])
-
 /**
  * Coordinator mode — tools the main agent is allowed to use directly.
  * Everything else must be delegated to sub-agents via Agent/MultiAgent.
@@ -237,70 +240,8 @@ const COORDINATOR_BASH_BLACKLIST = [
   /\beval\b/, /source\s/, /\. /,            // code evaluation
 ]
 
-/**
- * Concurrency-safe tools: run in parallel within a single LLM response.
- *
- * Rule: if the LLM emits multiple tool calls in one response, it intends them
- * to be independent — execute them all concurrently (Promise.all).
- *
- * Bash is included: the 64-core server has no issue with 50 concurrent shells.
- * Dependent commands should be chained inside a single Bash call (&&/;), not
- * split across separate Bash calls.
- *
- * Serial exceptions (own batch): Write, Edit, FindingWrite — these mutate shared
- * state and ordering may matter across calls.
- */
-const CONCURRENCY_SAFE_TOOLS = new Set([
-  'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch',
-  'WeaponRadar', 'FindingList', 'MultiScan',
-  'Bash',        // parallel — dependent ops should be chained with && in one call
-  'Agent',       // parallel — multiple sub-agents run simultaneously via Promise.all
-  'MultiAgent',  // parallel — internally uses Promise.all; safe to batch with others
-  'DispatchAgent', 'CheckDispatch', 'GetDispatchResult', // parallel — dispatch management
-  'C2',          // parallel — deploy_listener / get_ip / list_sessions are safe
-  'ShellSession', // parallel — listen / list / exec on different sessions
-  'TmuxSession',  // parallel — new / list / capture on different sessions
-  'EnvAnalyzer',        // parallel — read-only detection probes
-  'TechniqueGenerator', // parallel — text-only technique generation
-])
-
-/**
- * Tools whose results must never be cached.
- * - State-mutating tools: always re-execute
- * - Read/Glob/Grep: in a live pen-test environment files change after every Bash
- *   write — a 5-minute stale read would silently return old content and confuse
- *   the agent. Cache only truly static, expensive lookups (Web fetch, WeaponRadar).
- */
-const NO_CACHE_TOOLS = new Set([
-  'Bash', 'ShellSession', 'TmuxSession', 'C2',
-  'Write', 'Edit', 'FileEdit', 'FindingWrite',
-  'Read', 'Glob', 'Grep',   // filesystem changes mid-session — never stale-serve
-])
-
-/**
- * Partition tool calls into batches for scheduling:
- * - All tools in CONCURRENCY_SAFE_TOOLS → merged into one parallel batch (Promise.all)
- * - Write / Edit / FindingWrite and other stateful tools → own serial batch
- */
-function partitionToolCalls(calls: ParsedToolCall[]): ToolBatch[] {
-  const batches: ToolBatch[] = []
-
-  for (const call of calls) {
-    const safe = CONCURRENCY_SAFE_TOOLS.has(call.tc.name)
-    const last = batches[batches.length - 1]
-
-    if (last && last.safe && safe) {
-      last.calls.push(call)   // extend existing parallel batch
-    } else {
-      batches.push({ safe, calls: [call] })  // new batch
-    }
-  }
-
-  return batches
-}
-
 export class ExecutionEngine {
-  private client: OpenAI
+  private modelClient: ModelClient
   private tools: Tool[]
   private config: EngineConfig
   private renderer: Renderer
@@ -318,11 +259,13 @@ export class ExecutionEngine {
   private contextBudget: EngineConfig['contextBudget']
   /** Knowledge extractor — may be undefined if not configured */
   private knowledgeExtractor: KnowledgeExtractor | null = null
+  private permissionManager = new PermissionManager()
+  private artifactStore: ArtifactStore | null = null
 
   constructor(config: EngineConfig, renderer: Renderer) {
     this.config = config
     this.renderer = renderer
-    this.client = new OpenAI({
+    this.modelClient = OpenAICompatibleModelClient.fromConfig({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
     })
@@ -331,6 +274,7 @@ export class ExecutionEngine {
     this.toolCache = config.toolCache || new ToolCache()
     this.eventLog = config.eventLog
     this.contextBudget = config.contextBudget
+    this.artifactStore = config.sessionDir ? new ArtifactStore(config.sessionDir) : null
 
     // Initialize knowledge extractor if knowledge base is configured
     if (config.knowledgeBase) {
@@ -366,7 +310,7 @@ export class ExecutionEngine {
     if (recent.length < 4) return null
 
     try {
-      const response = await this.client.chat.completions.create({
+      const output = await this.modelClient.completeText({
         model: this.config.model,
         messages: [
           { role: 'system', content: CRITIC_SYSTEM_PROMPT },
@@ -376,10 +320,9 @@ export class ExecutionEngine {
           },
         ],
         temperature: 0,
-        max_tokens: CRITIC_MAX_TOKENS,
+        maxTokens: CRITIC_MAX_TOKENS,
       })
 
-      const output = response.choices[0]?.message?.content?.trim() ?? ''
       if (!output || /^ok$/i.test(output)) return null
       return output
     } catch {
@@ -396,6 +339,7 @@ export class ExecutionEngine {
     history: OpenAIMessage[],
   ): Promise<{ result: TurnResult; newHistory: OpenAIMessage[] }> {
     const planMode = this.config.planMode ?? false
+    const runId = `run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`
 
     // Reset knowledge extractor state at the start of each new user turn
     this.knowledgeExtractor?.reset()
@@ -420,12 +364,15 @@ export class ExecutionEngine {
         baseURL: this.config.baseURL,
         model: this.config.model,
       },
+      modelClient: this.modelClient,
       // Inject sessionDir for tools that need anchor updates
       sessionDir: this.config.sessionDir,
       // Inject new systems into tool context
       eventLog: this.eventLog,
       semanticMemory: this.config.semanticMemory,
       episodicMemory: this.config.episodicMemory,
+      readableRoots: this.config.readableRoots,
+      writableRoots: this.config.writableRoots,
     }
 
     const messages: OpenAIMessage[] = [
@@ -439,33 +386,53 @@ export class ExecutionEngine {
     const coordinatorMode = (this.config.coordinatorMode ?? false) && !!this.config.sessionDir
     let toolDefs = allToolDefs
     if (planMode) {
-      toolDefs = allToolDefs.filter((t) => PLAN_MODE_TOOLS.has(t.function.name))
+      toolDefs = allToolDefs.filter((t) => isPlanModeTool(this.tools, t.function.name))
     } else if (coordinatorMode) {
       toolDefs = allToolDefs.filter((t) => COORDINATOR_ALLOWED_TOOLS.has(t.function.name))
     }
 
     let iterations = 0
     let finalOutput = ''
+    const finish = (result: TurnResult): { result: TurnResult; newHistory: OpenAIMessage[] } => {
+      this.eventLog?.append('run_complete', 'engine', {
+        runId,
+        reason: result.reason,
+        iterations,
+        messageCount: messages.length,
+        outputLength: result.output.length,
+      }, ['run', result.reason])
+      return { result, newHistory: messages }
+    }
+
+    this.eventLog?.append('run_start', 'engine', {
+      runId,
+      model: this.config.model,
+      planMode,
+      coordinatorMode,
+      historyMessages: history.length,
+      exposedTools: toolDefs.length,
+    }, ['run'])
 
     try {
       while (iterations < this.config.maxIterations) {
         // Check for cancellation at the top of each loop
         if (turnAbortController.signal.aborted) {
-          return {
-            result: { stopped: true, reason: 'error', output: finalOutput },
-            newHistory: messages,
-          }
+          return finish({ stopped: true, reason: 'error', output: finalOutput })
         }
 
         iterations++
+        const turnId = `${runId}_turn_${iterations}`
+        this.eventLog?.append('turn_start', 'engine', {
+          runId,
+          turnId,
+          iteration: iterations,
+          messageCount: messages.length,
+        }, ['turn'])
 
         // ── Soft-interrupt check — pause after current tool, preserve history ─
         if (this.softAbortRequested) {
           this.softAbortRequested = false
-          return {
-            result: { stopped: true, reason: 'interrupted', output: finalOutput },
-            newHistory: messages,
-          }
+          return finish({ stopped: true, reason: 'interrupted', output: finalOutput })
         }
 
         // ── Context stats + auto-compact ────────────────────────
@@ -498,7 +465,7 @@ export class ExecutionEngine {
             tokens_before: ctxState.currentTokens,
             pct: ctxState.pct,
           })
-          const compactResult = await maybeCompact(this.client, this.config.model, messages, undefined, this.config.sessionDir)
+          const compactResult = await maybeCompact(this.modelClient, this.config.model, messages, undefined, this.config.sessionDir)
           if (compactResult.compacted) {
             messages.length = 0
             messages.push(...compactResult.messages)
@@ -537,39 +504,33 @@ export class ExecutionEngine {
 
         // ── Streaming API call ───────────────────────────────────
         this.renderer.startSpinner()
+        this.eventLog?.append('model_request', 'model', {
+          runId,
+          turnId,
+          model: this.config.model,
+          messageCount: messages.length + 1, // includes system prompt
+          toolCount: toolDefs.length,
+        }, ['model'])
 
-        let stream: AsyncIterable<OpenAI.Chat.ChatCompletionChunk>
+        let stream: AsyncIterable<ChatStreamChunk>
         try {
-          stream = await this.client.chat.completions.create(
-            {
-              model: this.config.model,
-              messages: [
-                { role: 'system', content: systemPrompt },
-                ...(messages as OpenAI.Chat.ChatCompletionMessageParam[]),
-              ],
-              tools: toolDefs as OpenAI.Chat.ChatCompletionTool[],
-              tool_choice: 'auto',
-              temperature: 0,
-              max_tokens: 8192,
-              stream: true,
-            },
-            // Pass abort signal to the HTTP request
-            { signal: turnAbortController.signal },
-          )
+          stream = await this.modelClient.streamChat({
+            model: this.config.model,
+            systemPrompt,
+            messages,
+            tools: toolDefs,
+            signal: turnAbortController.signal,
+            temperature: 0,
+            maxTokens: 8192,
+          })
         } catch (err: unknown) {
           this.renderer.stopSpinner()
           const error = err as Error
           if (error.name === 'AbortError' || turnAbortController.signal.aborted) {
-            return {
-              result: { stopped: true, reason: 'error', output: finalOutput },
-              newHistory: messages,
-            }
+            return finish({ stopped: true, reason: 'error', output: finalOutput })
           }
           this.renderer.error(`API error: ${error.message}`)
-          return {
-            result: { stopped: true, reason: 'error', output: error.message },
-            newHistory: messages,
-          }
+          return finish({ stopped: true, reason: 'error', output: error.message })
         }
 
         // ── Consume stream ───────────────────────────────────────
@@ -616,16 +577,10 @@ export class ExecutionEngine {
           this.renderer.stopSpinner()
           const error = err as Error
           if (error.name === 'AbortError' || turnAbortController.signal.aborted) {
-            return {
-              result: { stopped: true, reason: 'error', output: finalOutput },
-              newHistory: messages,
-            }
+            return finish({ stopped: true, reason: 'error', output: finalOutput })
           }
           this.renderer.error(`Stream error: ${error.message}`)
-          return {
-            result: { stopped: true, reason: 'error', output: error.message },
-            newHistory: messages,
-          }
+          return finish({ stopped: true, reason: 'error', output: error.message })
         }
 
         this.renderer.stopSpinner()
@@ -636,6 +591,14 @@ export class ExecutionEngine {
         }
 
         const rawToolCalls = Array.from(toolCallsMap.values()).sort((a, b) => a.index - b.index)
+        this.eventLog?.append('model_response', 'model', {
+          runId,
+          turnId,
+          finishReason,
+          textLength: assistantText.length,
+          toolCallCount: rawToolCalls.length,
+          toolNames: rawToolCalls.map((tc) => tc.name),
+        }, ['model', rawToolCalls.length > 0 ? 'tool_calls' : 'text'])
 
         const assistantMsg: OpenAIMessage = {
           role: 'assistant',
@@ -652,10 +615,7 @@ export class ExecutionEngine {
 
         if (finishReason === 'stop' || rawToolCalls.length === 0) {
           this.extractSessionKnowledge()
-          return {
-            result: { stopped: true, reason: 'stop_sequence', output: finalOutput },
-            newHistory: messages,
-          }
+          return finish({ stopped: true, reason: 'stop_sequence', output: finalOutput })
         }
 
         // ── Parse inputs ─────────────────────────────────────────
@@ -670,7 +630,15 @@ export class ExecutionEngine {
         })
 
         // ── Schedule: parallel (safe) vs serial (unsafe) ─────────
-        const batches = partitionToolCalls(parsedCalls)
+        const maxParallelBatchSize = Math.max(
+          1,
+          Math.floor(this.config.maxConcurrentToolCalls ?? DEFAULT_MAX_CONCURRENT_TOOL_CALLS),
+        )
+        const batches = partitionToolCalls(
+          parsedCalls,
+          (name) => isConcurrencySafeTool(this.tools, name),
+          { maxParallelBatchSize },
+        )
 
         for (const batch of batches) {
           if (turnAbortController.signal.aborted) break
@@ -701,7 +669,7 @@ export class ExecutionEngine {
               messages.push({
                 role: 'tool',
                 tool_call_id: tc.id,
-                content: truncateToolResult(result.content),
+                content: this.prepareToolResultContent(tc.name, result.content),
                 name: tc.name,
               })
             }
@@ -723,7 +691,7 @@ export class ExecutionEngine {
               messages.push({
                 role: 'tool',
                 tool_call_id: tc.id,
-                content: truncateToolResult(result.content),
+                content: this.prepareToolResultContent(tc.name, result.content),
                 name: tc.name,
               })
 
@@ -732,10 +700,7 @@ export class ExecutionEngine {
               // effect after the current tool, not after the full batch.
               if (this.softAbortRequested) {
                 this.softAbortRequested = false
-                return {
-                  result: { stopped: true, reason: 'interrupted', output: finalOutput },
-                  newHistory: messages,
-                }
+                return finish({ stopped: true, reason: 'interrupted', output: finalOutput })
               }
             }
           }
@@ -743,10 +708,7 @@ export class ExecutionEngine {
           // ── Soft-interrupt check after each batch (parallel too) ─
           if (this.softAbortRequested) {
             this.softAbortRequested = false
-            return {
-              result: { stopped: true, reason: 'interrupted', output: finalOutput },
-              newHistory: messages,
-            }
+            return finish({ stopped: true, reason: 'interrupted', output: finalOutput })
           }
         }
       }
@@ -756,10 +718,7 @@ export class ExecutionEngine {
 
     this.renderer.warn(`Max iterations (${this.config.maxIterations}) reached`)
     this.extractSessionKnowledge()
-    return {
-      result: { stopped: true, reason: 'max_iterations', output: finalOutput },
-      newHistory: messages,
-    }
+    return finish({ stopped: true, reason: 'max_iterations', output: finalOutput })
   }
 
   /** Session-end knowledge extraction (best-effort, never throws) */
@@ -771,6 +730,32 @@ export class ExecutionEngine {
     } catch { /* best-effort — knowledge extraction must never break the engine */ }
   }
 
+  private prepareToolResultContent(toolName: string, content: string): string {
+    if (content.length <= MAX_TOOL_RESULT_LENGTH) return content
+
+    const artifact = this.artifactStore?.writeText(`tool_${toolName}`, content)
+    if (artifact) {
+      this.eventLog?.append('artifact_write', 'artifact_store', {
+        toolName,
+        path: artifact.path,
+        bytes: artifact.bytes,
+        sha256: artifact.sha256,
+        createdAt: artifact.createdAt,
+        prefix: artifact.prefix,
+        reason: 'tool_result_too_large',
+      }, ['artifact', toolName])
+      return [
+        `[Full tool output stored at: ${artifact.path}]`,
+        `[Bytes: ${artifact.bytes}]`,
+        `[SHA256: ${artifact.sha256}]`,
+        '',
+        truncateToolResult(content),
+      ].join('\n')
+    }
+
+    return truncateToolResult(content)
+  }
+
   private async executeToolCall(
     toolName: string,
     input: Record<string, unknown>,
@@ -778,7 +763,7 @@ export class ExecutionEngine {
     planMode = false,
   ): Promise<ToolResult> {
     // In plan mode, block write tools (defence in depth — tool defs already filtered)
-    if (planMode && !PLAN_MODE_TOOLS.has(toolName)) {
+    if (planMode && !isPlanModeTool(this.tools, toolName)) {
       return {
         content: `Tool "${toolName}" is not available in plan mode. Only read-only tools are allowed. Output your plan as text.`,
         isError: true,
@@ -816,7 +801,7 @@ export class ExecutionEngine {
     }
 
     // Check cache first (skip for non-cacheable tools)
-    if (!NO_CACHE_TOOLS.has(toolName)) {
+    if (isCacheableTool(this.tools, toolName)) {
       const cachedResult = this.toolCache.get(toolName, input)
       if (cachedResult) {
         this.renderer.info(`[Cache hit] ${toolName}`)
@@ -828,21 +813,39 @@ export class ExecutionEngine {
     if (!tool) {
       return { content: `Unknown tool: ${toolName}`, isError: true }
     }
+    const permission = this.permissionManager.checkTool({
+      toolName,
+      input,
+      mode: this.config.permissionMode,
+      runtime: tool.runtime,
+      cwd: context.cwd,
+      sessionDir: context.sessionDir,
+      readableRoots: context.readableRoots,
+      writableRoots: context.writableRoots,
+    })
+    if (!permission.allowed) {
+      this.eventLog?.append('permission_denied', 'permissions', {
+        toolName,
+        reason: permission.reason,
+        mode: this.config.permissionMode,
+      }, ['permission', toolName])
+      return { content: `Permission denied: ${permission.reason}`, isError: true }
+    }
 
     // Generate task ID for progress tracking
     const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
     // Declared outside try so catch block can reference it
-    const isLongRunningTool = ['Bash', 'MultiScan', 'WeaponRadar', 'WebSearch', 'C2'].includes(toolName)
+    const longRunning = isLongRunningTool(this.tools, toolName)
 
     try {
-      if (isLongRunningTool) {
+      if (longRunning) {
         this.progressTracker.start(taskId, toolName, input)
         this.renderer.info(`[Progress] Starting ${toolName} task ${taskId}`)
       }
 
       // Create a progress update function
       const updateProgress = (progress: number, recoveryData?: Record<string, unknown>) => {
-        if (isLongRunningTool) {
+        if (longRunning) {
           this.progressTracker.update(taskId, progress, recoveryData)
           this.renderer.info(`[Progress] ${toolName}: ${progress}%`)
         }
@@ -858,16 +861,14 @@ export class ExecutionEngine {
       const result = await tool.execute(input, enhancedContext)
 
       // Complete progress tracking
-      if (isLongRunningTool) {
+      if (longRunning) {
         this.progressTracker.complete(taskId, result.content)
         this.renderer.info(`[Progress] ${toolName} completed`)
       }
 
       // Cache the result (only for cacheable, successful, non-error results)
-      if (!result.isError && !NO_CACHE_TOOLS.has(toolName)) {
-        const ttl = ['WebFetch', 'WebSearch'].includes(toolName)
-          ? 60 * 60 * 1000  // 1 hour for expensive web lookups
-          : undefined
+      if (!result.isError && isCacheableTool(this.tools, toolName)) {
+        const ttl = findTool(this.tools, toolName)?.runtime?.cacheTtlMs
         this.toolCache.set(toolName, input, result, ttl)
       }
 
@@ -891,8 +892,8 @@ export class ExecutionEngine {
 
       return result
     } catch (err: unknown) {
-      // Handle error in progress tracking — use the same isLongRunningTool flag
-      if (isLongRunningTool) {
+      // Handle error in progress tracking using the same runtime metadata.
+      if (longRunning) {
         this.progressTracker.fail(taskId, (err as Error).message)
         this.renderer.error(`[Progress] ${toolName} failed: ${(err as Error).message}`)
       }

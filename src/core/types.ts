@@ -67,9 +67,23 @@ export interface ToolResult {
   isError: boolean
 }
 
+export interface ToolRuntimeMetadata {
+  /** Tool can be exposed in plan mode because it should not mutate local state. */
+  readOnly?: boolean
+  /** Tool calls with no ordering dependency may run concurrently in one model turn. */
+  concurrencySafe?: boolean
+  /** Tool result can be reused for identical inputs. */
+  cacheable?: boolean
+  /** Optional TTL for cached successful results. */
+  cacheTtlMs?: number
+  /** Tool is expected to benefit from progress tracking. */
+  longRunning?: boolean
+}
+
 export interface Tool {
   name: string
   definition: ToolDefinition
+  runtime?: ToolRuntimeMetadata
   execute(input: Record<string, unknown>, context: ToolContext): Promise<ToolResult>
 }
 
@@ -85,6 +99,8 @@ export interface ToolContext {
    * (e.g. image analysis via vision API) to reuse the same endpoint + key.
    */
   apiConfig?: { apiKey: string; baseURL?: string; model: string }
+  /** Unified model adapter for tools that need auxiliary LLM calls. */
+  modelClient?: import('./modelClient.js').ModelClient
   /**
    * Session output directory — for tools that need to write to the engagement
    * session directory (e.g. FindingWrite for anchor updates).
@@ -98,6 +114,10 @@ export interface ToolContext {
   episodicMemory?: import('./episodicMemory.js').EpisodicMemory
   /** Knowledge base — growing attack knowledge */
   knowledgeBase?: import('./knowledgeBase.js').KnowledgeBase
+  /** Additional roots tools may read from. cwd and sessionDir are always included. */
+  readableRoots?: string[]
+  /** Additional roots mutating file tools may write to. cwd and sessionDir are always included. */
+  writableRoots?: string[]
 }
 
 /**
@@ -155,6 +175,11 @@ export interface EngineConfig {
   maxContextTokens?: number
   /** Dispatch manager for async agent communication */
   dispatchManager?: import('./dispatch.js').DispatchManager
+  /**
+   * Upper bound for one parallel-safe tool batch. Prevents unbounded fan-out
+   * when a model emits many concurrency-safe tool calls in one response.
+   */
+  maxConcurrentToolCalls?: number
   /** Event log for audit trail */
   eventLog?: import('./eventLog.js').EventLog
   /** Context budget manager for explicit token allocation */
@@ -165,6 +190,10 @@ export interface EngineConfig {
   episodicMemory?: import('./episodicMemory.js').EpisodicMemory
   /** Knowledge base — growing attack knowledge */
   knowledgeBase?: import('./knowledgeBase.js').KnowledgeBase
+  /** Additional roots for read tools. cwd and sessionDir are always included. */
+  readableRoots?: string[]
+  /** Additional roots for write/edit/output tools. cwd and sessionDir are always included. */
+  writableRoots?: string[]
 }
 
 export interface TurnResult {

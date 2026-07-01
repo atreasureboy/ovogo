@@ -1,3 +1,5 @@
+import { redactText } from './redaction.js'
+
 /**
  * DispatchManager — async agent dispatch with callback pattern
  *
@@ -37,7 +39,7 @@ export class DispatchManager {
     const record: DispatchRecord = {
       id,
       agentType,
-      prompt: prompt.slice(0, 500),
+      prompt: redactText(prompt).slice(0, 500),
       status: 'pending',
       startedAt: new Date().toISOString(),
     }
@@ -49,7 +51,7 @@ export class DispatchManager {
   update(id: string, updates: Partial<Pick<DispatchRecord, 'status' | 'result' | 'error'>>): void {
     const record = this.dispatches.get(id)
     if (!record) return
-    Object.assign(record, updates)
+    Object.assign(record, redactDispatchUpdates(updates))
     if (updates.status === 'completed' || updates.status === 'failed') {
       record.completedAt = new Date().toISOString()
       // Trigger callbacks
@@ -99,5 +101,15 @@ export class DispatchManager {
         this.dispatches.delete(id)
       }
     }
+  }
+}
+
+function redactDispatchUpdates(
+  updates: Partial<Pick<DispatchRecord, 'status' | 'result' | 'error'>>,
+): Partial<Pick<DispatchRecord, 'status' | 'result' | 'error'>> {
+  return {
+    ...updates,
+    result: typeof updates.result === 'string' ? redactText(updates.result) : updates.result,
+    error: typeof updates.error === 'string' ? redactText(updates.error) : updates.error,
   }
 }

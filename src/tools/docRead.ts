@@ -7,19 +7,18 @@
  *   .xlsx / .xls       → openpyxl
  *   .pptx / .ppt       → python-pptx (text extraction per slide)
  *   .csv               → plain read with utf-8
- *   .png/.jpg/.jpeg    → OpenAI Vision API (base64 multimodal call)
- *   .gif/.webp/.bmp    → OpenAI Vision API
+ *   .png/.jpg/.jpeg    → ModelClient vision call (base64 multimodal)
+ *   .gif/.webp/.bmp    → ModelClient vision call
  *
  * Image analysis requires a vision-capable model (e.g. gpt-4o, claude-3-5-sonnet).
- * The tool reuses the engine's apiConfig from ToolContext so no extra credentials
- * are needed.
+ * The tool reuses the engine's ModelClient from ToolContext so no extra
+ * credentials or provider-specific SDK calls are needed here.
  */
 
 import { readFile } from 'fs/promises'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
-import OpenAI from 'openai'
 import type { Tool, ToolContext, ToolDefinition, ToolResult } from '../core/types.js'
 
 const execAsync = promisify(exec)
@@ -293,7 +292,7 @@ export class DocReadTool implements Tool {
       }
     }
 
-    const { apiKey, baseURL, model } = context.apiConfig
+    const { model } = context.apiConfig
 
     let imageData: Buffer
     try {
@@ -308,8 +307,15 @@ export class DocReadTool implements Tool {
       '请详细描述这张图片的内容。提取所有可见的文字（OCR）、数字、表格、配置项、凭证、IP地址、代码片段等关键信息，以结构化方式输出。'
 
     try {
-      const client = new OpenAI({ apiKey, baseURL })
-      const response = await client.chat.completions.create({
+      const modelClient = context.modelClient
+      if (!modelClient) {
+        return {
+          content: 'DocRead image analysis requires modelClient in ToolContext (engine not initialised properly)',
+          isError: true,
+        }
+      }
+
+      const result = await modelClient.completeText({
         model,
         messages: [
           {
@@ -323,10 +329,10 @@ export class DocReadTool implements Tool {
             ],
           },
         ],
-        max_tokens: 4096,
+        signal: context.signal,
+        maxTokens: 4096,
       })
 
-      const result = response.choices[0]?.message?.content ?? ''
       return {
         content: `[DocRead: image analysis — ${path.basename(filePath)}]\n\n${result}`,
         isError: false,

@@ -14,6 +14,7 @@
 import { appendFileSync, existsSync, readFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { redactRecord } from './redaction.js'
 
 // ─── Entry types ──────────────────────────────────────────────────────────────
 
@@ -103,7 +104,11 @@ export class KnowledgeBase {
   write(type: KnowledgeType, entry: Record<string, unknown>): void {
     const dir = this.projectDir ?? this.globalDir
     const filePath = join(dir, KNOWLEDGE_FILES[type])
-    const fullEntry = { ...entry, id: (entry as any).id || nextId(), created_at: (entry as any).created_at || new Date().toISOString() }
+    const fullEntry = redactRecord({
+      ...entry,
+      id: (entry as any).id || nextId(),
+      created_at: (entry as any).created_at || new Date().toISOString(),
+    })
     try {
       appendFileSync(filePath, JSON.stringify(fullEntry) + '\n', 'utf8')
     } catch { /* best-effort — knowledge write must never break the engine */ }

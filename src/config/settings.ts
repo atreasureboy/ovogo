@@ -29,6 +29,7 @@
 import { readFileSync, existsSync } from 'fs'
 import { resolve, join } from 'path'
 import { homedir } from 'os'
+import { z } from 'zod'
 
 export interface HookEntry {
   /** Comma-separated tool names to match, or "*" / omit for all. Supports trailing "*" wildcard. */
@@ -67,13 +68,97 @@ export interface EngagementScope {
 export interface OvogoSettings {
   hooks?: HooksConfig
   engagement?: EngagementScope
+  runtime?: RuntimeSettings
+  profile?: ProfileSettings
 }
 
-function tryParse(path: string): OvogoSettings {
+export interface RuntimeSettings {
+  model?: string
+  maxIterations?: number
+  maxConcurrentToolCalls?: number
+  permissionMode?: 'auto' | 'ask' | 'deny'
+  readableRoots?: string[]
+  writableRoots?: string[]
+}
+
+export interface ProfileSettings {
+  /** `redteam` preserves legacy behavior; `generic` uses a domain-neutral prompt. */
+  name?: 'redteam' | 'generic'
+}
+
+export interface SettingsDiagnostic {
+  path: string
+  level: 'warning' | 'error'
+  message: string
+}
+
+const HookEntrySchema = z.object({
+  matcher: z.string().optional(),
+  command: z.string().min(1),
+})
+
+const HooksConfigSchema = z.object({
+  PreToolCall: z.array(HookEntrySchema).optional(),
+  PostToolCall: z.array(HookEntrySchema).optional(),
+  UserPromptSubmit: z.array(HookEntrySchema).optional(),
+}).partial()
+
+const EngagementScopeSchema = z.object({
+  name: z.string().optional(),
+  phase: z.enum(['recon', 'initial-access', 'lateral-movement', 'post-exploitation', 'exfiltration']).optional(),
+  targets: z.array(z.string()).optional(),
+  out_of_scope: z.array(z.string()).optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  notes: z.string().optional(),
+}).partial()
+
+const OvogoSettingsSchema = z.object({
+  hooks: HooksConfigSchema.optional(),
+  engagement: EngagementScopeSchema.optional(),
+  runtime: z.object({
+    model: z.string().min(1).optional(),
+    maxIterations: z.number().int().positive().optional(),
+    maxConcurrentToolCalls: z.number().int().positive().optional(),
+    permissionMode: z.enum(['auto', 'ask', 'deny']).optional(),
+    readableRoots: z.array(z.string()).optional(),
+    writableRoots: z.array(z.string()).optional(),
+  }).partial().optional(),
+  profile: z.object({
+    name: z.enum(['redteam', 'generic']).optional(),
+  }).partial().optional(),
+}).partial()
+
+function formatZodIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
+    .join('; ')
+}
+
+function tryParse(path: string): { settings: OvogoSettings; diagnostics: SettingsDiagnostic[] } {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as OvogoSettings
-  } catch {
-    return {}
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as unknown
+    const result = OvogoSettingsSchema.safeParse(parsed)
+    if (!result.success) {
+      return {
+        settings: {},
+        diagnostics: [{
+          path,
+          level: 'error',
+          message: `Invalid settings schema: ${formatZodIssues(result.error)}`,
+        }],
+      }
+    }
+    return { settings: result.data, diagnostics: [] }
+  } catch (err: unknown) {
+    return {
+      settings: {},
+      diagnostics: [{
+        path,
+        level: 'error',
+        message: `Unable to parse settings: ${(err as Error).message}`,
+      }],
+    }
   }
 }
 
@@ -94,15 +179,39 @@ function mergeSettings(a: OvogoSettings, b: OvogoSettings): OvogoSettings {
       UserPromptSubmit: [...(a.hooks?.UserPromptSubmit ?? []), ...(b.hooks?.UserPromptSubmit ?? [])],
     },
     engagement: mergedEngagement,
+    runtime: {
+      ...(a.runtime ?? {}),
+      ...(b.runtime ?? {}),
+    },
+    profile: {
+      ...(a.profile ?? {}),
+      ...(b.profile ?? {}),
+    },
   }
 }
 
 export function loadSettings(cwd: string): OvogoSettings {
+  return loadSettingsWithDiagnostics(cwd).settings
+}
+
+export function loadSettingsWithDiagnostics(cwd: string): {
+  settings: OvogoSettings
+  diagnostics: SettingsDiagnostic[]
+} {
   const globalPath = join(homedir(), '.ovogo', 'settings.json')
   const projectPath = resolve(cwd, '.ovogo', 'settings.json')
 
   let settings: OvogoSettings = {}
-  if (existsSync(globalPath)) settings = mergeSettings(settings, tryParse(globalPath))
-  if (existsSync(projectPath)) settings = mergeSettings(settings, tryParse(projectPath))
-  return settings
+  const diagnostics: SettingsDiagnostic[] = []
+  if (existsSync(globalPath)) {
+    const loaded = tryParse(globalPath)
+    settings = mergeSettings(settings, loaded.settings)
+    diagnostics.push(...loaded.diagnostics)
+  }
+  if (existsSync(projectPath)) {
+    const loaded = tryParse(projectPath)
+    settings = mergeSettings(settings, loaded.settings)
+    diagnostics.push(...loaded.diagnostics)
+  }
+  return { settings, diagnostics }
 }

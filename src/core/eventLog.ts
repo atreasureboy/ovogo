@@ -7,8 +7,16 @@
 
 import { appendFileSync, mkdirSync, existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import { redactRecord } from './redaction.js'
 
 export type EventType =
+  | 'run_start'
+  | 'run_complete'
+  | 'turn_start'
+  | 'model_request'
+  | 'model_response'
+  | 'artifact_write'
+  | 'permission_denied'
   | 'tool_call'
   | 'tool_result'
   | 'agent_spawn'
@@ -57,7 +65,7 @@ export class EventLog {
       timestamp: new Date().toISOString(),
       type,
       source,
-      detail,
+      detail: redactRecord(detail),
       tags,
     }
     try {
@@ -70,26 +78,57 @@ export class EventLog {
 
   /** Read all events from the file */
   readAll(): EventLogEntry[] {
-    if (!existsSync(this.filePath)) return []
+    return this.readWithDiagnostics().entries
+  }
+
+  readWithDiagnostics(): { entries: EventLogEntry[]; invalidLines: number } {
+    if (!existsSync(this.filePath)) return { entries: [], invalidLines: 0 }
     try {
       const lines = readFileSync(this.filePath, 'utf8').trim().split('\n').filter(Boolean)
-      return lines.map((l) => JSON.parse(l) as EventLogEntry)
+      const entries: EventLogEntry[] = []
+      let invalidLines = 0
+      for (const line of lines) {
+        try {
+          entries.push(redactRecord(JSON.parse(line) as Record<string, unknown>) as unknown as EventLogEntry)
+        } catch {
+          // Keep valid events even if one line is truncated/corrupt.
+          invalidLines += 1
+        }
+      }
+      return { entries, invalidLines }
     } catch {
-      return []
+      return { entries: [], invalidLines: 0 }
     }
   }
 
-  /** Query events by type and/or tags */
-  query(options: { type?: EventType; tags?: string[]; limit?: number }): EventLogEntry[] {
+  /** Query events by type/source/tags/time for diagnostics and replay tooling. */
+  query(options: {
+    type?: EventType
+    source?: string
+    tags?: string[]
+    since?: string
+    limit?: number
+  }): EventLogEntry[] {
     const all = this.readAll()
     let filtered = all
     if (options.type) {
       filtered = filtered.filter((e) => e.type === options.type)
     }
+    if (options.source) {
+      filtered = filtered.filter((e) => e.source === options.source)
+    }
     if (options.tags && options.tags.length > 0) {
       filtered = filtered.filter((e) =>
         e.tags && options.tags!.some((t) => e.tags!.includes(t)),
       )
+    }
+    if (options.since) {
+      const sinceMs = Date.parse(options.since)
+      filtered = filtered.filter((e) => {
+        const eventMs = Date.parse(e.timestamp)
+        if (Number.isFinite(eventMs) && Number.isFinite(sinceMs)) return eventMs >= sinceMs
+        return e.timestamp >= options.since!
+      })
     }
     const limit = options.limit ?? 50
     return filtered.slice(-limit)
@@ -98,5 +137,33 @@ export class EventLog {
   /** Get the file path (for tools that want to cat/tail it) */
   getFilePath(): string {
     return this.filePath
+  }
+
+  /** Summarize event counts for diagnostics/replay tooling. */
+  stats(): {
+    total: number
+    invalidLines: number
+    firstTimestamp?: string
+    lastTimestamp?: string
+    byType: Record<string, number>
+    bySource: Record<string, number>
+  } {
+    const { entries: events, invalidLines } = this.readWithDiagnostics()
+    const byType: Record<string, number> = {}
+    const bySource: Record<string, number> = {}
+
+    for (const event of events) {
+      byType[event.type] = (byType[event.type] ?? 0) + 1
+      bySource[event.source] = (bySource[event.source] ?? 0) + 1
+    }
+
+    return {
+      total: events.length,
+      invalidLines,
+      firstTimestamp: events[0]?.timestamp,
+      lastTimestamp: events.at(-1)?.timestamp,
+      byType,
+      bySource,
+    }
   }
 }

@@ -10,6 +10,7 @@
 
 import { appendFileSync, existsSync, readFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import { redactRecord } from './redaction.js'
 
 export interface EpisodicMemoryEntry {
   id: string
@@ -39,7 +40,7 @@ export class EpisodicMemory {
 
   /** Append a new episode entry */
   write(entry: Omit<EpisodicMemoryEntry, 'id'>): EpisodicMemoryEntry {
-    const full: EpisodicMemoryEntry = { ...entry, id: nextId() }
+    const full = redactRecord({ ...entry, id: nextId() }) as unknown as EpisodicMemoryEntry
     try {
       appendFileSync(this.filePath, JSON.stringify(full) + '\n', 'utf8')
     } catch { /* best-effort */ }

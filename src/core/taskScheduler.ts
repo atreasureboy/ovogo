@@ -15,6 +15,7 @@
  */
 
 import type { ExecutionEngine } from './engine.js'
+import { redactText } from './redaction.js'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -95,11 +96,14 @@ export class AsyncTaskScheduler {
   /** Queue tasks for scheduling */
   submit(tasks: SchedulerTask[]): void {
     for (const task of tasks) {
-      // Auto-extract target resource if not provided
-      if (!task.targetResource) {
-        task.targetResource = extractTargetResource(task.prompt)
+      // Preserve scheduling metadata from the raw prompt, but only store redacted text.
+      const targetResource = task.targetResource ?? extractTargetResource(task.prompt)
+      const sanitizedTask = {
+        ...task,
+        prompt: redactText(task.prompt),
+        targetResource,
       }
-      this.pending.push(task)
+      this.pending.push(sanitizedTask)
     }
   }
 
@@ -188,7 +192,7 @@ export class AsyncTaskScheduler {
     ).then(({ result }) => ({ task, result }))
 
     const timeoutPromise = new Promise<{ task: SchedulerTask; result: { output: string; stopped: boolean; reason: string } }>((resolve) => {
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         resolve({
           task,
           result: {
@@ -198,6 +202,7 @@ export class AsyncTaskScheduler {
           },
         })
       }, timeoutMs)
+      timeout.unref?.()
     })
 
     const promise = Promise.race([taskPromise, timeoutPromise])
@@ -208,7 +213,7 @@ export class AsyncTaskScheduler {
         this.completedIds.add(task.id)
         this.completed.push({
           task,
-          output: result.output,
+          output: redactText(result.output),
           findings: this.countFindings(result.output),
           success: !result.stopped || result.reason === 'stop_sequence',
         })
@@ -220,7 +225,7 @@ export class AsyncTaskScheduler {
         // Record as completed with error info
         this.completed.push({
           task,
-          output: `异常: ${(err as Error).message}`,
+          output: redactText(`异常: ${(err as Error).message}`),
           findings: 0,
           success: false,
         })

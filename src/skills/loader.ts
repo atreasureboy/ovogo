@@ -32,9 +32,14 @@ import { homedir } from 'os'
 export interface Skill {
   name: string
   description: string
-  prompt: string
   source: 'builtin' | 'global' | 'project'
+  /** Built-ins keep prompt text in memory; file skills load body on invocation. */
+  prompt?: string
+  filePath?: string
 }
+
+const SKILL_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/
+const MAX_SKILL_PROMPT_CHARS = 80_000
 
 // ─────────────────────────────────────────────────────────────
 // YAML frontmatter parser (no external deps)
@@ -75,6 +80,7 @@ function parseSkillFile(
     const { frontmatter, body } = parseFrontmatter(raw)
 
     const name = (frontmatter.name ?? defaultName).trim()
+    if (!isValidSkillName(name)) return null
 
     // Description: frontmatter > first heading line > name
     let description = frontmatter.description ?? ''
@@ -83,13 +89,14 @@ function parseSkillFile(
       description = firstLine.replace(/^#+\s*/, '').trim() || name
     }
 
-    // Prompt: body (frontmatter stripped), or full raw if no frontmatter
-    const prompt = body || raw
-
-    return { name, description, prompt, source }
+    return { name, description, source, filePath }
   } catch {
     return null
   }
+}
+
+export function isValidSkillName(name: string): boolean {
+  return SKILL_NAME_RE.test(name)
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -224,5 +231,23 @@ export function loadSkills(cwd: string): Map<string, Skill> {
  * Expand a skill prompt, substituting $ARGS with the provided arguments string.
  */
 export function expandSkillPrompt(skill: Skill, args: string): string {
-  return skill.prompt.replace(/\$ARGS/g, args.trim())
+  return loadSkillPrompt(skill).replace(/\$ARGS/g, args.trim())
+}
+
+export function loadSkillPrompt(skill: Skill): string {
+  if (skill.prompt !== undefined) return skill.prompt
+  if (!skill.filePath) return ''
+
+  const raw = readFileSync(skill.filePath, 'utf8').trim()
+  const { body } = parseFrontmatter(raw)
+  return truncateSkillPrompt(body || raw)
+}
+
+function truncateSkillPrompt(prompt: string): string {
+  if (prompt.length <= MAX_SKILL_PROMPT_CHARS) return prompt
+  return [
+    prompt.slice(0, MAX_SKILL_PROMPT_CHARS),
+    '',
+    `[Skill prompt truncated: ${prompt.length - MAX_SKILL_PROMPT_CHARS} characters omitted]`,
+  ].join('\n')
 }

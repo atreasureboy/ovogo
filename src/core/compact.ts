@@ -8,10 +8,11 @@
  *   4. Keep last N recent messages verbatim (fresh context)
  */
 
-import OpenAI from 'openai'
 import type { OpenAIMessage } from './types.js'
 import { existsSync, readFileSync } from 'fs'
 import { join } from 'path'
+import type { ModelClient } from './modelClient.js'
+import { redactRecord } from './redaction.js'
 
 // Rough chars-per-token estimate (conservative — better to compact early)
 const CHARS_PER_TOKEN = 3.5
@@ -159,7 +160,7 @@ function readAnchorsAsPrompt(sessionDir?: string): string | null {
 
   try {
     const raw = readFileSync(anchorsPath, 'utf8')
-    const anchors = JSON.parse(raw) as {
+    const anchors = redactRecord(JSON.parse(raw) as Record<string, unknown>) as {
       ports?: Array<{ target: string; port: number; protocol: string; service?: string }>
       cves?: Array<{ cve: string; target: string; score: number }>
       creds?: Array<{ target: string; username?: string; credential: string; type: string }>
@@ -247,7 +248,7 @@ export interface CompactResult {
  * Returns new (smaller) messages array.
  */
 export async function maybeCompact(
-  client: OpenAI,
+  modelClient: ModelClient,
   model: string,
   messages: OpenAIMessage[],
   threshold = COMPACT_THRESHOLD_TOKENS,
@@ -274,17 +275,15 @@ export async function maybeCompact(
 
   let summaryText: string
   try {
-    const response = await client.chat.completions.create({
+    summaryText = await modelClient.completeText({
       model,
       messages: [
         { role: 'system', content: SUMMARY_SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
       ],
       temperature: 0,
-      max_tokens: SUMMARY_OUTPUT_RESERVE,
-      // No tools — we explicitly don't want tool calls here
+      maxTokens: SUMMARY_OUTPUT_RESERVE,
     })
-    summaryText = response.choices[0]?.message?.content ?? ''
   } catch (err) {
     // If summarization fails, return original messages unchanged
     return { compacted: false, messages, summaryTokens: 0, originalTokens }

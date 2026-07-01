@@ -3,7 +3,7 @@
  *
  * Red team agent types are mapped to purpose-built system prompts in
  * src/prompts/agentPrompts.ts.  Multiple Agent calls in one LLM response
- * execute in parallel (Agent is in CONCURRENCY_SAFE_TOOLS).
+ * execute in parallel when Agent runtime metadata marks them concurrency-safe.
  */
 
 import type { Tool, ToolContext, ToolDefinition, ToolResult } from '../core/types.js'
@@ -15,6 +15,7 @@ import { tmuxLayout } from '../ui/tmuxLayout.js'
 import { appendFileSync } from 'fs'
 import { join } from 'path'
 import type { DispatchManager } from '../core/dispatch.js'
+import { redactRecord } from '../core/redaction.js'
 
 // Shared dispatch manager — injected at startup
 let _dispatchManager: DispatchManager | null = null
@@ -76,13 +77,13 @@ function normalizeDelegatedPrompt(prompt: string, config: EngineConfig): string 
   return normalized
 }
 
-function appendAgentEvent(config: EngineConfig, event: Record<string, unknown>): void {
+export function appendAgentEvent(config: EngineConfig, event: Record<string, unknown>): void {
   if (!config.sessionDir) return
   const logPath = join(config.sessionDir, AGENT_EVENT_LOG_FILE)
-  const payload = {
+  const payload = redactRecord({
     ts: new Date().toISOString(),
     ...event,
-  }
+  })
   try {
     appendFileSync(logPath, JSON.stringify(payload) + '\n', 'utf8')
   } catch {

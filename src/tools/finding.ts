@@ -9,6 +9,7 @@
 import type { Tool, ToolContext, ToolDefinition, ToolResult } from '../core/types.js'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, appendFileSync } from 'fs'
 import { resolve, join } from 'path'
+import { redactRecord } from '../core/redaction.js'
 
 // ─── Anchors ─────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,8 @@ function loadAnchors(path: string): AnchorStore {
 }
 
 function saveAnchors(path: string, anchors: AnchorStore): void {
-  try { writeFileSync(path, JSON.stringify(anchors, null, 2), 'utf8') } catch { /* best-effort */ }
+  const safeAnchors = redactRecord(anchors as unknown as Record<string, unknown>)
+  try { writeFileSync(path, JSON.stringify(safeAnchors, null, 2), 'utf8') } catch { /* best-effort */ }
 }
 
 function updateAnchorsFromFinding(sessionDir: string | undefined, f: Finding): void {
@@ -120,6 +122,10 @@ function getFindingsDir(cwd: string): string {
   return resolve(cwd, '.ovogo', 'findings')
 }
 
+function isValidFindingId(id: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(id)
+}
+
 function ensureFindingsDir(dir: string): void {
   mkdirSync(dir, { recursive: true })
 }
@@ -129,7 +135,7 @@ function loadAllFindings(dir: string): Finding[] {
   const files = readdirSync(dir).filter((f) => f.endsWith('.json'))
   return files.flatMap((f) => {
     try {
-      return [JSON.parse(readFileSync(join(dir, f), 'utf8')) as Finding]
+      return [redactRecord(JSON.parse(readFileSync(join(dir, f), 'utf8')) as Record<string, unknown>) as unknown as Finding]
     } catch {
       return []
     }
@@ -228,6 +234,12 @@ export class FindingWriteTool implements Tool {
     if (!id || !title || !type || !target || !severity || !phase || !description || !status) {
       return { content: 'Error: 缺少必填字段 (id/title/type/target/severity/phase/description/status)', isError: true }
     }
+    if (!isValidFindingId(id)) {
+      return {
+        content: 'Error: finding id 只能包含字母、数字、下划线、点和短横线，且不能用于路径跳转。',
+        isError: true,
+      }
+    }
 
     const dir = getFindingsDir(context.cwd)
     ensureFindingsDir(dir)
@@ -235,7 +247,7 @@ export class FindingWriteTool implements Tool {
     const filePath = join(dir, `${id}.json`)
     const isUpdate = existsSync(filePath)
 
-    const finding: Finding = {
+    const finding = redactRecord({
       id,
       title,
       type,
@@ -249,7 +261,7 @@ export class FindingWriteTool implements Tool {
       screenshot_path,
       status,
       timestamp: new Date().toISOString(),
-    }
+    }) as unknown as Finding
 
     // 更新时保留原始 timestamp，新增用当前时间
     if (isUpdate) {
@@ -266,7 +278,7 @@ export class FindingWriteTool implements Tool {
 
     const action = isUpdate ? '已更新' : '已记录'
     return {
-      content: `Finding ${action}: [${severity.toUpperCase()}] ${id} — ${title}\n目标: ${target}\n阶段: ${phase}\n文件: ${filePath}`,
+      content: `Finding ${action}: [${finding.severity.toUpperCase()}] ${finding.id} — ${finding.title}\n目标: ${finding.target}\n阶段: ${finding.phase}\n文件: ${filePath}`,
       isError: false,
     }
   }

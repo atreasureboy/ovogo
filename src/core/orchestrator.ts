@@ -10,10 +10,10 @@
  * Calls engine.runTurn() for each agent dispatch, collects results into state.
  */
 
-import OpenAI from 'openai'
 import type { Renderer } from '../ui/renderer.js'
 import type { ExecutionEngine } from './engine.js'
 import { AsyncTaskScheduler } from './taskScheduler.js'
+import { OpenAICompatibleModelClient, type ModelClient } from './modelClient.js'
 
 // ─── Phase definitions ──────────────────────────────────────────────────────
 
@@ -288,7 +288,7 @@ export class BattleOrchestrator {
   private phaseMachine = new PhaseMachine()
   private taskDAG = new TaskDAG()
   private scheduler: AsyncTaskScheduler
-  private client: OpenAI
+  private modelClient: ModelClient
   private maxCycles: number
   private cycleCount = 0
 
@@ -298,7 +298,7 @@ export class BattleOrchestrator {
     this.engine = engine
     this.maxCycles = maxCycles
     this.scheduler = new AsyncTaskScheduler(engine)
-    this.client = new OpenAI({
+    this.modelClient = OpenAICompatibleModelClient.fromConfig({
       apiKey: config.apiKey,
       baseURL: config.baseURL,
     })
@@ -449,18 +449,17 @@ export class BattleOrchestrator {
     ].join('\n')
 
     try {
-      const response = await this.client.chat.completions.create({
+      const content = await this.modelClient.completeText({
         model: this.config.model,
         messages: [
           { role: 'system', content: SUPERVISOR_SYSTEM },
           { role: 'user', content: userPrompt },
         ],
         temperature: 0,
-        max_tokens: 1000,
-        response_format: { type: 'json_object' },
+        maxTokens: 1000,
+        responseFormat: 'json_object',
       })
 
-      const content = response.choices[0]?.message?.content?.trim()
       if (!content) return null
 
       const decision = JSON.parse(content) as SupervisorDecision

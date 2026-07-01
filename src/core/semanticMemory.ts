@@ -10,6 +10,7 @@
 
 import { appendFileSync, existsSync, readFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
+import { redactRecord } from './redaction.js'
 
 export interface SemanticMemoryEntry {
   id: string
@@ -37,7 +38,7 @@ export class SemanticMemory {
 
   /** Append a new memory entry */
   write(entry: Omit<SemanticMemoryEntry, 'id'>): SemanticMemoryEntry {
-    const full: SemanticMemoryEntry = { ...entry, id: nextId() }
+    const full = redactRecord({ ...entry, id: nextId() }) as unknown as SemanticMemoryEntry
     try {
       appendFileSync(this.filePath, JSON.stringify(full) + '\n', 'utf8')
     } catch { /* best-effort */ }

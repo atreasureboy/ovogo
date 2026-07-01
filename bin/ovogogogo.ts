@@ -27,7 +27,7 @@
  */
 
 import { resolve, join } from 'path'
-import { writeFileSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import { ExecutionEngine } from '../src/core/engine.js'
 import { Renderer } from '../src/ui/renderer.js'
 import { InputHandler, readStdin } from '../src/ui/input.js'
@@ -36,7 +36,7 @@ import { registerAgentFactory, setDispatchManager } from '../src/tools/agent.js'
 import { DispatchManager } from '../src/core/dispatch.js'
 import { loadMcpTools, disconnectAll } from '../src/services/mcp/loader.js'
 import type { ConnectedMcpClient } from '../src/services/mcp/client.js'
-import { loadSettings } from '../src/config/settings.js'
+import { loadSettingsWithDiagnostics } from '../src/config/settings.js'
 import { HookRunner, NoopHookRunner } from '../src/config/hooks.js'
 import { loadSkills, expandSkillPrompt } from '../src/skills/loader.js'
 import type { Skill } from '../src/skills/loader.js'
@@ -46,14 +46,18 @@ import { buildFullSystemPrompt } from '../src/prompts/system.js'
 import { ProgressTracker } from '../src/core/progressTracker.js'
 import { ToolCache } from '../src/core/toolCache.js'
 import { EventLog } from '../src/core/eventLog.js'
+import { ArtifactStore } from '../src/core/artifactStore.js'
 import { SemanticMemory } from '../src/core/semanticMemory.js'
 import { EpisodicMemory } from '../src/core/episodicMemory.js'
 import { ContextBudgetManager } from '../src/core/contextBudget.js'
 import { KnowledgeBase } from '../src/core/knowledgeBase.js'
 import { BattleOrchestrator } from '../src/core/orchestrator.js'
 import { tmuxLayout } from '../src/ui/tmuxLayout.js'
+import { redactText } from '../src/core/redaction.js'
 
 const VERSION = '0.1.0'
+const DEFAULT_MAX_CONCURRENT_TOOL_CALLS = 8
+const MAX_CONCURRENT_TOOL_CALLS_LIMIT = 64
 
 // ─────────────────────────────────────────────────────────────
 // Arg parsing
@@ -62,11 +66,26 @@ const VERSION = '0.1.0'
 interface Args {
   task?: string
   model: string
+  modelProvided: boolean
   maxIter: number
+  maxIterProvided: boolean
+  permissionMode: 'auto' | 'ask' | 'deny'
+  permissionModeProvided: boolean
   cwd: string
   help: boolean
   version: boolean
   orchestrator: boolean
+  doctor: boolean
+  eventsDir?: string
+  artifactsDir?: string
+  eventType?: string
+  eventSource?: string
+  eventTags?: string[]
+  eventSince?: string
+  eventLimit?: number
+  artifactLimit?: number
+  json: boolean
+  strict: boolean
 }
 
 const MAX_RECENT_HISTORY_MESSAGES = 120
@@ -105,11 +124,28 @@ function parseArgs(argv: string[]): Args {
   const args = argv.slice(2)
   let task: string | undefined
   let model = process.env.OVOGO_MODEL ?? 'gpt-4o'
-  let maxIter = parseInt(process.env.OVOGO_MAX_ITER ?? '200', 10)
+  let maxIter = parsePositiveInt(process.env.OVOGO_MAX_ITER, 200)
+  const envPermissionMode = process.env.OVOGO_PERMISSION_MODE
+  let permissionMode: 'auto' | 'ask' | 'deny' =
+    envPermissionMode === 'ask' || envPermissionMode === 'deny' ? envPermissionMode : 'auto'
   let cwd = process.env.OVOGO_CWD ?? process.cwd()
   let help = false
   let version = false
   let orchestrator = false
+  let doctor = false
+  let eventsDir: string | undefined
+  let artifactsDir: string | undefined
+  let eventType: string | undefined
+  let eventSource: string | undefined
+  const eventTags: string[] = []
+  let eventSince: string | undefined
+  let eventLimit: number | undefined
+  let artifactLimit: number | undefined
+  let json = false
+  let strict = false
+  let modelProvided = false
+  let maxIterProvided = false
+  let permissionModeProvided = false
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
@@ -117,14 +153,72 @@ function parseArgs(argv: string[]): Args {
       case '--help': case '-h': help = true; break
       case '--version': case '-v': case '-V': version = true; break
       case '--orchestrator': orchestrator = true; break
-      case '--model': case '-m': model = args[++i] ?? model; break
-      case '--max-iter': maxIter = parseInt(args[++i] ?? '30', 10); break
+      case '--doctor': doctor = true; break
+      case '--json': json = true; break
+      case '--strict': strict = true; break
+      case '--events': eventsDir = args[++i]; break
+      case '--artifacts': artifactsDir = args[++i]; break
+      case '--event-type': eventType = args[++i]; break
+      case '--event-source': eventSource = args[++i]; break
+      case '--event-tag': {
+        const value = args[++i]
+        if (value) eventTags.push(...value.split(',').map((tag) => tag.trim()).filter(Boolean))
+        break
+      }
+      case '--event-since': eventSince = args[++i]; break
+      case '--event-limit': eventLimit = parsePositiveInt(args[++i], eventLimit ?? 20); break
+      case '--artifact-limit': artifactLimit = parsePositiveInt(args[++i], artifactLimit ?? 20); break
+      case '--model': case '-m': model = args[++i] ?? model; modelProvided = true; break
+      case '--max-iter': maxIter = parsePositiveInt(args[++i], maxIter); maxIterProvided = true; break
+      case '--permission-mode': {
+        const value = args[++i]
+        if (value === 'auto' || value === 'ask' || value === 'deny') {
+          permissionMode = value
+          permissionModeProvided = true
+        }
+        break
+      }
       case '--cwd': cwd = args[++i] ?? cwd; break
       default:
         if (!arg.startsWith('-')) task = task ? task + ' ' + arg : arg
     }
   }
-  return { task, model, maxIter, cwd, help, version, orchestrator }
+  return {
+    task,
+    model,
+    modelProvided,
+    maxIter,
+    maxIterProvided,
+    permissionMode,
+    permissionModeProvided,
+    cwd,
+    help,
+    version,
+    orchestrator,
+    doctor,
+    eventsDir,
+    artifactsDir,
+    eventType,
+    eventSource,
+    eventTags,
+    eventSince,
+    eventLimit,
+    artifactLimit,
+    json,
+    strict,
+  }
+}
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function resolveMaxConcurrentToolCalls(settingsValue?: number, envValue?: string): number {
+  const fallback = settingsValue ?? DEFAULT_MAX_CONCURRENT_TOOL_CALLS
+  const raw = envValue !== undefined ? parsePositiveInt(envValue, fallback) : fallback
+  return Math.max(1, Math.min(Math.floor(raw), MAX_CONCURRENT_TOOL_CALLS_LIMIT))
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -140,14 +234,27 @@ function printHelp(skills: Map<string, Skill>): void {
 OPTIONS
   -m, --model <model>    LLM model  (env: OVOGO_MODEL, default: gpt-4o)
   --max-iter <n>         Think-Act-Observe max cycles  (env: OVOGO_MAX_ITER, default: 200)
+  --permission-mode <m>   Tool permission mode: auto | ask | deny  (env: OVOGO_PERMISSION_MODE, default: auto)
   --cwd <path>           Working directory  (env: OVOGO_CWD, default: cwd)
   --orchestrator         State machine mode — LLM supervisor dispatches agents across pentest phases
+  --doctor               Run local config/environment diagnostics without requiring an API key
+  --events <sessionDir>  Summarize a session events.ndjson without requiring an API key
+  --artifacts <sessionDir> Summarize a session artifacts/manifest.ndjson without requiring an API key
+  --event-type <type>    With --events, include recent events of this type
+  --event-source <src>   With --events, include recent events from this source
+  --event-tag <tag>      With --events, include recent events with this tag (repeatable or comma-separated)
+  --event-since <time>   With --events, include events at or after this ISO timestamp
+  --event-limit <n>      With --events, include recent matching events (default with filters: 20)
+  --artifact-limit <n>   With --artifacts, include recent artifacts (default: 20)
+  --json                 Emit machine-readable JSON for compatible diagnostics commands
+  --strict               For diagnostics, return non-zero when integrity warnings are present
   -v, --version          Print version and exit
   -h, --help             Show this help
 
 ENVIRONMENT
   OPENAI_API_KEY         Required — OpenAI API key
   OPENAI_BASE_URL        Optional — compatible endpoint URL
+  OVOGO_MAX_CONCURRENT_TOOL_CALLS  Max safe tool calls per parallel batch (clamped 1..64, default: 8)
 
 TOOLS
   Bash          Execute shell commands and pentest tools
@@ -191,6 +298,216 @@ EXAMPLES
 `)
 }
 
+function runDoctor(cwd: string, skills: Map<string, Skill>, json = false, strict = false): number {
+  const { settings, diagnostics } = loadSettingsWithDiagnostics(cwd)
+  const hasApiKey = Boolean(process.env.OPENAI_API_KEY)
+  const hasSettingsErrors = diagnostics.some((diagnostic) => diagnostic.level === 'error')
+  const readableRoots = normalizeRuntimeRoots(cwd, settings.runtime?.readableRoots)
+  const writableRoots = normalizeRuntimeRoots(cwd, settings.runtime?.writableRoots)
+  const rootDiagnostics = [
+    ...diagnoseRuntimeRoots('runtime.readableRoots', readableRoots),
+    ...diagnoseRuntimeRoots('runtime.writableRoots', writableRoots),
+  ]
+  const profileName = settings.profile?.name ?? 'redteam'
+  const summary = {
+    cwd,
+    openaiApiKey: hasApiKey ? 'set' : 'missing',
+    settingsStatus: hasSettingsErrors ? 'error' : 'ok',
+    skillsIndexed: skills.size,
+    profile: {
+      name: profileName,
+      behavior: profileName === 'generic' ? 'domain-neutral coding agent' : 'legacy redteam prompt',
+    },
+    runtime: {
+      model: settings.runtime?.model ?? process.env.OVOGO_MODEL ?? 'gpt-4o',
+      maxIterations: settings.runtime?.maxIterations ?? process.env.OVOGO_MAX_ITER ?? '200',
+      maxConcurrentToolCalls: resolveMaxConcurrentToolCalls(
+        settings.runtime?.maxConcurrentToolCalls,
+        process.env.OVOGO_MAX_CONCURRENT_TOOL_CALLS,
+      ),
+      permissionMode: settings.runtime?.permissionMode ?? process.env.OVOGO_PERMISSION_MODE ?? 'auto',
+    },
+    workspace: {
+      root: cwd,
+      extraRoots: 'sessionDir is added at runtime',
+      readableRoots,
+      writableRoots,
+    },
+    diagnostics,
+    rootDiagnostics,
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify(summary, null, 2) + '\n')
+    return doctorExitCode(hasSettingsErrors, rootDiagnostics.length, strict)
+  }
+
+  process.stdout.write(`Ovogo Doctor\n`)
+  process.stdout.write(`- cwd: ${summary.cwd}\n`)
+  process.stdout.write(`- OPENAI_API_KEY: ${summary.openaiApiKey}\n`)
+  process.stdout.write(`- settings: ${summary.settingsStatus}\n`)
+  process.stdout.write(`- skills indexed: ${summary.skillsIndexed}\n`)
+  process.stdout.write(`- profile.name: ${summary.profile.name}\n`)
+  process.stdout.write(`- profile.behavior: ${summary.profile.behavior}\n`)
+  process.stdout.write(`- runtime.model: ${summary.runtime.model}\n`)
+  process.stdout.write(`- runtime.maxIterations: ${summary.runtime.maxIterations}\n`)
+  process.stdout.write(`- runtime.maxConcurrentToolCalls: ${summary.runtime.maxConcurrentToolCalls}\n`)
+  process.stdout.write(`- runtime.permissionMode: ${summary.runtime.permissionMode}\n`)
+  process.stdout.write(`- workspace.root: ${summary.workspace.root}\n`)
+  process.stdout.write(`- workspace.extraRoots: ${summary.workspace.extraRoots}\n`)
+  process.stdout.write(`- workspace.readableRoots: ${summary.workspace.readableRoots.join(', ') || '(none)'}\n`)
+  process.stdout.write(`- workspace.writableRoots: ${summary.workspace.writableRoots.join(', ') || '(none)'}\n`)
+
+  for (const diagnostic of diagnostics) {
+    process.stdout.write(`- ${diagnostic.level}: ${diagnostic.path}: ${diagnostic.message}\n`)
+  }
+  for (const diagnostic of rootDiagnostics) {
+    process.stdout.write(`- warning: ${diagnostic}\n`)
+  }
+
+  return doctorExitCode(hasSettingsErrors, rootDiagnostics.length, strict)
+}
+
+function doctorExitCode(hasSettingsErrors: boolean, rootDiagnosticCount: number, strict: boolean): number {
+  if (hasSettingsErrors) return 1
+  if (strict && rootDiagnosticCount > 0) return 2
+  return 0
+}
+
+function normalizeRuntimeRoots(cwd: string, roots: string[] | undefined): string[] {
+  return (roots ?? []).map((root) => resolve(cwd, root))
+}
+
+function diagnoseRuntimeRoots(label: string, roots: string[]): string[] {
+  return roots.flatMap((root, index) => {
+    if (!existsSync(root)) return [`${label}[${index}] does not exist: ${root}`]
+    try {
+      if (!statSync(root).isDirectory()) return [`${label}[${index}] is not a directory: ${root}`]
+    } catch (err: unknown) {
+      return [`${label}[${index}] cannot be inspected: ${(err as Error).message}`]
+    }
+    return []
+  })
+}
+
+function runEventsSummary(
+  sessionDir: string,
+  json = false,
+  strict = false,
+  options: {
+    eventType?: string
+    eventSource?: string
+    eventTags?: string[]
+    eventSince?: string
+    eventLimit?: number
+  } = {},
+): number {
+  const eventLog = new EventLog(resolve(sessionDir))
+  const stats = eventLog.stats()
+  const hasEventFilter = Boolean(options.eventType || options.eventSource || options.eventSince || options.eventTags?.length)
+  const shouldIncludeEvents = hasEventFilter || options.eventLimit !== undefined
+  const eventLimit = options.eventLimit ?? (hasEventFilter ? 20 : 0)
+  const recentEvents = shouldIncludeEvents
+    ? eventLog.query({
+        type: options.eventType as any,
+        source: options.eventSource,
+        tags: options.eventTags,
+        since: options.eventSince,
+        limit: eventLimit,
+      })
+    : []
+  const summary = {
+    sessionDir: resolve(sessionDir),
+    eventsFile: eventLog.getFilePath(),
+    filters: {
+      eventType: options.eventType,
+      eventSource: options.eventSource,
+      eventTags: options.eventTags,
+      eventSince: options.eventSince,
+      eventLimit: shouldIncludeEvents ? eventLimit : undefined,
+    },
+    recentEvents,
+    ...stats,
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify(summary, null, 2) + '\n')
+    return strict && summary.invalidLines > 0 ? 2 : 0
+  }
+
+  process.stdout.write(`Ovogo Events\n`)
+  process.stdout.write(`- sessionDir: ${summary.sessionDir}\n`)
+  process.stdout.write(`- eventsFile: ${summary.eventsFile}\n`)
+  process.stdout.write(`- total: ${summary.total}\n`)
+  process.stdout.write(`- invalidLines: ${summary.invalidLines}\n`)
+  process.stdout.write(`- firstTimestamp: ${summary.firstTimestamp ?? '(none)'}\n`)
+  process.stdout.write(`- lastTimestamp: ${summary.lastTimestamp ?? '(none)'}\n`)
+  if (shouldIncludeEvents) {
+    const filters = [
+      summary.filters.eventType ? `type=${summary.filters.eventType}` : undefined,
+      summary.filters.eventSource ? `source=${summary.filters.eventSource}` : undefined,
+      summary.filters.eventTags?.length ? `tags=${summary.filters.eventTags.join(',')}` : undefined,
+      summary.filters.eventSince ? `since=${summary.filters.eventSince}` : undefined,
+      `limit=${eventLimit}`,
+    ].filter(Boolean).join(' ')
+    process.stdout.write(`- filters: ${filters}\n`)
+    process.stdout.write(`- recentEvents (${summary.recentEvents.length}):\n`)
+    for (const event of summary.recentEvents) {
+      process.stdout.write(`  - ${event.timestamp} ${event.type} ${event.source} ${event.id}\n`)
+    }
+  }
+  process.stdout.write(`- byType:\n`)
+  for (const [type, count] of Object.entries(summary.byType).sort()) {
+    process.stdout.write(`  - ${type}: ${count}\n`)
+  }
+  process.stdout.write(`- bySource:\n`)
+  for (const [source, count] of Object.entries(summary.bySource).sort()) {
+    process.stdout.write(`  - ${source}: ${count}\n`)
+  }
+
+  return strict && summary.invalidLines > 0 ? 2 : 0
+}
+
+function runArtifactsSummary(
+  sessionDir: string,
+  json = false,
+  strict = false,
+  options: { artifactLimit?: number } = {},
+): number {
+  const store = new ArtifactStore(resolve(sessionDir))
+  const diagnostics = store.readManifestWithDiagnostics()
+  const artifactLimit = options.artifactLimit ?? 20
+  const recentArtifacts = diagnostics.entries.slice(-artifactLimit)
+  const totalBytes = diagnostics.entries.reduce((sum, artifact) => sum + artifact.bytes, 0)
+  const summary = {
+    sessionDir: resolve(sessionDir),
+    manifestFile: store.getManifestPath(),
+    total: diagnostics.entries.length,
+    invalidLines: diagnostics.invalidLines,
+    totalBytes,
+    artifactLimit,
+    recentArtifacts,
+  }
+
+  if (json) {
+    process.stdout.write(JSON.stringify(summary, null, 2) + '\n')
+    return strict && summary.invalidLines > 0 ? 2 : 0
+  }
+
+  process.stdout.write(`Ovogo Artifacts\n`)
+  process.stdout.write(`- sessionDir: ${summary.sessionDir}\n`)
+  process.stdout.write(`- manifestFile: ${summary.manifestFile}\n`)
+  process.stdout.write(`- total: ${summary.total}\n`)
+  process.stdout.write(`- invalidLines: ${summary.invalidLines}\n`)
+  process.stdout.write(`- totalBytes: ${summary.totalBytes}\n`)
+  process.stdout.write(`- recentArtifacts (${summary.recentArtifacts.length}):\n`)
+  for (const artifact of summary.recentArtifacts) {
+    process.stdout.write(`  - ${artifact.createdAt} ${artifact.bytes}B ${artifact.sha256} ${artifact.path}\n`)
+  }
+
+  return strict && summary.invalidLines > 0 ? 2 : 0
+}
+
 // ─────────────────────────────────────────────────────────────
 // Session directory — 按目标+时间戳隔离扫描输出
 // ─────────────────────────────────────────────────────────────
@@ -222,7 +539,7 @@ function updateProgressLog(cwd: string, step: string, nextAction: string): void 
   try {
     const log = {
       current_step: step,
-      next_action: nextAction,
+      next_action: redactText(nextAction),
       timestamp: new Date().toISOString(),
       cwd,
     }
@@ -588,7 +905,30 @@ async function runTask(
 // ─────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const { task, model, maxIter, cwd: rawCwd, help, version, orchestrator: useOrchestrator } = parseArgs(process.argv)
+  const {
+    task,
+    model: parsedModel,
+    modelProvided,
+    maxIter: parsedMaxIter,
+    maxIterProvided,
+    permissionMode: parsedPermissionMode,
+    permissionModeProvided,
+    cwd: rawCwd,
+    help,
+    version,
+    orchestrator: useOrchestrator,
+    doctor,
+    eventsDir,
+    artifactsDir,
+    eventType,
+    eventSource,
+    eventTags,
+    eventSince,
+    eventLimit,
+    artifactLimit,
+    json,
+    strict,
+  } = parseArgs(process.argv)
   const cwd = resolve(rawCwd)
 
   // Load skills early so --help can list them
@@ -604,6 +944,24 @@ async function main(): Promise<void> {
     process.exit(0)
   }
 
+  if (doctor) {
+    process.exit(runDoctor(cwd, skills, json, strict))
+  }
+
+  if (eventsDir) {
+    process.exit(runEventsSummary(eventsDir, json, strict, {
+      eventType,
+      eventSource,
+      eventTags,
+      eventSince,
+      eventLimit,
+    }))
+  }
+
+  if (artifactsDir) {
+    process.exit(runArtifactsSummary(artifactsDir, json, strict, { artifactLimit }))
+  }
+
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     process.stderr.write(
@@ -614,11 +972,29 @@ async function main(): Promise<void> {
   }
 
   const renderer = new Renderer()
-  renderer.banner(VERSION, model)
-  renderer.info(`cwd: ${cwd}`)
 
   // Load settings + hooks
-  const settings = loadSettings(cwd)
+  const { settings, diagnostics: settingsDiagnostics } = loadSettingsWithDiagnostics(cwd)
+  const model = modelProvided || process.env.OVOGO_MODEL
+    ? parsedModel
+    : settings.runtime?.model ?? parsedModel
+  const maxIter = maxIterProvided || process.env.OVOGO_MAX_ITER
+    ? parsedMaxIter
+    : settings.runtime?.maxIterations ?? parsedMaxIter
+  const maxConcurrentToolCalls = resolveMaxConcurrentToolCalls(
+    settings.runtime?.maxConcurrentToolCalls,
+    process.env.OVOGO_MAX_CONCURRENT_TOOL_CALLS,
+  )
+  const permissionMode = permissionModeProvided || process.env.OVOGO_PERMISSION_MODE
+    ? parsedPermissionMode
+    : settings.runtime?.permissionMode ?? parsedPermissionMode
+
+  renderer.banner(VERSION, model)
+  renderer.info(`cwd: ${cwd}`)
+  renderer.info(`Runtime: maxIter=${maxIter}, maxConcurrentToolCalls=${maxConcurrentToolCalls}, permissionMode=${permissionMode}`)
+  for (const diagnostic of settingsDiagnostics) {
+    renderer.warn(`Settings ${diagnostic.level}: ${diagnostic.path} — ${diagnostic.message}`)
+  }
   const hookRunner = settings.hooks
     ? new HookRunner(settings.hooks)
     : new NoopHookRunner()
@@ -706,7 +1082,9 @@ async function main(): Promise<void> {
 
   // Build the full system prompt once (OVOGO.md + memory + engagement + sessionDir + knowledge)
   const memorySection = buildMemorySystemSection(memoryDir)
-  const systemPrompt = buildFullSystemPrompt(cwd, ovogoMdFiles, memorySection, engagement, sessionDir, knowledgePrompt)
+  const profileName = settings.profile?.name ?? 'redteam'
+  renderer.info(`Profile: ${profileName}`)
+  const systemPrompt = buildFullSystemPrompt(cwd, ovogoMdFiles, memorySection, engagement, sessionDir, knowledgePrompt, profileName)
 
   // Load MCP servers (non-fatal if config missing)
   let mcpConnections: ConnectedMcpClient[] = []
@@ -756,7 +1134,7 @@ async function main(): Promise<void> {
     baseURL: process.env.OPENAI_BASE_URL,
     maxIterations: maxIter,
     cwd,
-    permissionMode: 'auto',
+    permissionMode,
     extraTools: mcpTools,
     hookRunner,
     systemPrompt,
@@ -768,6 +1146,7 @@ async function main(): Promise<void> {
     progressTracker,
     toolCache,
     coordinatorMode: true,
+    maxConcurrentToolCalls,
     maxContextTokens: maxCtxTokens,
     eventLog,
     contextBudget,
@@ -775,6 +1154,8 @@ async function main(): Promise<void> {
     semanticMemory,
     episodicMemory,
     knowledgeBase: kbTotal > 0 ? knowledgeBase : undefined,
+    readableRoots: normalizeRuntimeRoots(cwd, settings.runtime?.readableRoots),
+    writableRoots: normalizeRuntimeRoots(cwd, settings.runtime?.writableRoots),
   }
 
   // Plan-mode config: same system prompt + planMode=true (engine filters write tools)

@@ -90,6 +90,55 @@ npm run build
 npm start
 ```
 
+## 运行时与诊断
+
+```bash
+# 本地诊断，不要求 OPENAI_API_KEY
+npm run build
+node dist/bin/ovogogogo.js --doctor
+node dist/bin/ovogogogo.js --doctor --json
+node dist/bin/ovogogogo.js --doctor --strict --json
+
+# 查看历史 session 事件摘要，不要求 OPENAI_API_KEY
+node dist/bin/ovogogogo.js --events sessions/<session-dir>
+node dist/bin/ovogogogo.js --events sessions/<session-dir> --json
+node dist/bin/ovogogogo.js --events sessions/<session-dir> --strict --json
+node dist/bin/ovogogogo.js --events sessions/<session-dir> --event-type permission_denied --event-limit 5 --json
+node dist/bin/ovogogogo.js --events sessions/<session-dir> --event-source permissions --event-tag Bash --event-since 2026-06-30T00:00:00Z --json
+node dist/bin/ovogogogo.js --artifacts sessions/<session-dir> --artifact-limit 10 --json
+
+# 回归测试
+npm test
+
+# 权限模式
+node dist/bin/ovogogogo.js --permission-mode auto "你的任务"
+node dist/bin/ovogogogo.js --permission-mode deny "只读分析任务"
+```
+
+`--permission-mode deny` 会放行明确只读的 Bash 诊断命令（如 `ls`、`cat`、`rg`、`git status`），并阻断写入、联网、破坏性或动态执行类命令。
+
+`.ovogo/settings.json` 支持通用运行时配置：
+
+```json
+{
+  "profile": {
+    "name": "generic"
+  },
+  "runtime": {
+    "model": "gpt-4o",
+    "maxIterations": 200,
+    "maxConcurrentToolCalls": 8,
+    "permissionMode": "auto",
+    "readableRoots": ["/shared/read-only"],
+    "writableRoots": ["/shared/work-output"]
+  }
+}
+```
+
+`profile.name` 可设为 `redteam`（兼容旧行为）或 `generic`（通用编码 Agent）。`maxConcurrentToolCalls` 限制单批并发安全工具调用数量，并在运行时 clamp 到 `1..64`，避免模型一次响应触发无界 fan-out。`readableRoots` / `writableRoots` 用于给默认工作区和 session 目录之外的路径授权；相对路径会按 `--cwd` 解析，`--doctor` 会提示不存在或不是目录的 root。
+
+优先级：CLI 参数 > 环境变量 > `.ovogo/settings.json` > 默认值。
+
 ## 项目结构
 
 ```

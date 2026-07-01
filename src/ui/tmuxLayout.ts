@@ -16,12 +16,17 @@
 import { execSync, spawnSync } from 'child_process'
 import { mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { redactText } from '../core/redaction.js'
 
 // ─────────────────────────────────────────────────────────────
 // Shell single-quote escape
 // ─────────────────────────────────────────────────────────────
 function sq(s: string): string {
   return `'${s.replace(/'/g, "'\\''")}'`
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -123,18 +128,19 @@ export class TmuxLayout {
   acquireSlot(agentLabel: string): { slot: number; logFile: string } | null {
     if (!this.initialized) return null
 
+    const safeAgentLabel = redactText(agentLabel)
     const slot = this.slotCounter++
     const logFile = join(this.logDir, `agent-${slot}.log`)
-    const windowName = toWindowName(agentLabel) || `agent-${slot}`
+    const windowName = toWindowName(safeAgentLabel) || `agent-${slot}`
 
     // 写入 agent 启动 banner 到日志文件
     const startBanner =
       `\x1b[1m\x1b[95m${'═'.repeat(58)}\x1b[0m\n` +
-      `\x1b[1m\x1b[95m  ⎇  ${agentLabel}\x1b[0m\n` +
+      `\x1b[1m\x1b[95m  ⎇  ${safeAgentLabel}\x1b[0m\n` +
       `\x1b[2m     Started: ${new Date().toLocaleTimeString()}\x1b[0m\n` +
       `\x1b[1m\x1b[95m${'═'.repeat(58)}\x1b[0m\n`
     try {
-      writeFileSync(logFile, startBanner)
+      writeFileSync(logFile, redactText(stripAnsi(startBanner)))
     } catch { /* best-effort */ }
 
     try {
@@ -155,7 +161,7 @@ export class TmuxLayout {
       // 窗口创建失败，仍然返回 logFile 供 Renderer.forFile 使用
     }
 
-    this.activeWindows.push({ slot, logFile, windowName, agentLabel })
+    this.activeWindows.push({ slot, logFile, windowName, agentLabel: safeAgentLabel })
     return { slot, logFile }
   }
 
@@ -172,7 +178,7 @@ export class TmuxLayout {
       `\x1b[32m  ✓ "${win.agentLabel}" 完成\x1b[0m\n` +
       `\x1b[2m  ${new Date().toLocaleTimeString()}\x1b[0m\n` +
       `\x1b[2m${'─'.repeat(58)}\x1b[0m\n`
-    try { writeFileSync(win.logFile, footer, { flag: 'a' }) } catch { /* best-effort */ }
+    try { writeFileSync(win.logFile, redactText(stripAnsi(footer)), { flag: 'a' }) } catch { /* best-effort */ }
 
     // 重命名窗口加 ✓ 标记
     try {

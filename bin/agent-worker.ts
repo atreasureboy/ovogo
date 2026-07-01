@@ -12,7 +12,7 @@ import { ExecutionEngine } from '../src/core/engine.js'
 import { Renderer } from '../src/ui/renderer.js'
 import type { EngineConfig, OpenAIMessage } from '../src/core/types.js'
 import { getRedTeamAgentPrompt, type RedTeamAgentType } from '../src/prompts/agentPrompts.js'
-import type { AgentExecutionResult, Finding, Port, WebService, Credential, Shell } from '../src/core/agentResultTypes.js'
+import { redactAgentExecutionResult, type AgentExecutionResult, type Finding, type Port, type WebService, type Credential, type Shell } from '../src/core/agentResultTypes.js'
 
 // ── 参数解析 ──────────────────────────────────────────────────
 
@@ -233,8 +233,24 @@ async function main(): Promise<void> {
     if (!apiKey) {
       throw new Error('OPENAI_API_KEY not set')
     }
-    const model = process.env.OVOGO_MODEL ?? 'gpt-4o'
+    const model = typeof context.model === 'string'
+      ? context.model
+      : process.env.OVOGO_MODEL ?? 'gpt-4o'
     const baseURL = process.env.OPENAI_BASE_URL
+    const maxIterations = typeof context.maxIterations === 'number' && Number.isFinite(context.maxIterations)
+      ? Math.max(1, Math.min(context.maxIterations, 500))
+      : 120
+    const maxConcurrentToolCalls = typeof context.maxConcurrentToolCalls === 'number' && Number.isFinite(context.maxConcurrentToolCalls)
+      ? Math.max(1, Math.min(Math.floor(context.maxConcurrentToolCalls), 64))
+      : 8
+    const contextPermissionMode = context.permissionMode
+    const envPermissionMode = process.env.OVOGO_PERMISSION_MODE
+    const permissionMode =
+      contextPermissionMode === 'ask' || contextPermissionMode === 'deny' || contextPermissionMode === 'auto'
+        ? contextPermissionMode
+        : envPermissionMode === 'ask' || envPermissionMode === 'deny'
+          ? envPermissionMode
+          : 'auto'
 
     // 创建日志文件渲染器
     const logFile = join(sessionDir, `${type}_log.txt`)
@@ -250,9 +266,10 @@ async function main(): Promise<void> {
       model,
       apiKey,
       baseURL,
-      maxIterations: 120, // worker 默认 120 轮
+      maxIterations,
+      maxConcurrentToolCalls,
       cwd: sessionDir,
-      permissionMode: 'auto',
+      permissionMode,
       systemPrompt,
       sessionDir,
       primaryTarget: target,
@@ -280,7 +297,7 @@ async function main(): Promise<void> {
 
     // 写入完成标记
     const doneFile = join(sessionDir, `${type}_done.json`)
-    writeFileSync(doneFile, JSON.stringify(structuredResult, null, 2), 'utf8')
+    writeFileSync(doneFile, JSON.stringify(redactAgentExecutionResult(structuredResult), null, 2), 'utf8')
 
     renderer.success(`[Agent Worker] Result written to ${doneFile}`)
 

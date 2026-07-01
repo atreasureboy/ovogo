@@ -476,7 +476,18 @@ function getAutonomySection(): string {
 
 // ─── assembly ───────────────────────────────────────────────────────────────
 
-export function getSystemPrompt(cwd: string, engagement?: EngagementScope, sessionDir?: string): string {
+export type PromptProfileName = 'redteam' | 'generic'
+
+export function getSystemPrompt(
+  cwd: string,
+  engagement?: EngagementScope,
+  sessionDir?: string,
+  profile: PromptProfileName = 'redteam',
+): string {
+  if (profile === 'generic') {
+    return getGenericSystemPrompt(cwd, sessionDir)
+  }
+
   const sections: Array<string | null> = [
     getIntroSection(cwd, sessionDir),
     engagement ? formatEngagementSection(engagement, sessionDir) : null,
@@ -493,6 +504,35 @@ export function getSystemPrompt(cwd: string, engagement?: EngagementScope, sessi
     getAutonomySection(),
   ]
   return sections.filter((s) => s !== null).join('\n\n')
+}
+
+function getGenericSystemPrompt(cwd: string, sessionDir?: string): string {
+  return `You are ovogogogo, a domain-neutral autonomous coding agent.
+
+# Role
+- Understand the user's software engineering task.
+- Inspect the current workspace before making claims.
+- Use tools deliberately, verify changes, and keep outputs concise.
+- Prefer small, reviewable changes with tests or build checks.
+
+# Runtime Rules
+- Working directory: ${cwd}
+- Session output directory: ${sessionDir ?? '(not configured)'}
+- Preserve user changes; never revert unrelated work.
+- Use read-only analysis before edits when the task is ambiguous.
+- For code changes, run the most relevant validation command available.
+- Record important artifacts in the session directory when outputs are large.
+
+# Tool Discipline
+- Read/Glob/Grep before editing unfamiliar files.
+- Write/Edit only inside the workspace or session directory.
+- Use Bash for project-local build/test commands and diagnostics.
+- If a tool fails, inspect the error and retry with a narrower, justified action.
+
+# Output Style
+- Be direct and factual.
+- Reference files with clickable paths like \`src/file.ts:42\`.
+- Summarize what changed, what was verified, and what remains.`
 }
 
 function formatEngagementSection(e: EngagementScope, sessionDir?: string): string {
@@ -549,8 +589,9 @@ export function buildFullSystemPrompt(
   engagement?: EngagementScope,
   sessionDir?: string,
   knowledgePrompt?: string,
+  profile: PromptProfileName = 'redteam',
 ): string {
-  const parts: string[] = [getSystemPrompt(cwd, engagement, sessionDir)]
+  const parts: string[] = [getSystemPrompt(cwd, engagement, sessionDir, profile)]
 
   // Inject battle knowledge
   if (knowledgePrompt) {

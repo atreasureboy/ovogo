@@ -2,7 +2,7 @@
  * Tool registry — all available tools for ovogogogo
  */
 
-import type { Tool } from '../core/types.js'
+import type { Tool, ToolRuntimeMetadata } from '../core/types.js'
 import { BashTool } from './bash.js'
 import { FileReadTool } from './fileRead.js'
 import { FileWriteTool } from './fileWrite.js'
@@ -25,6 +25,49 @@ import { KnowledgeQueryTool } from './knowledgeQuery.js'
 import { EnvAnalyzerTool } from './envAnalyzer.js'
 import { TechniqueGeneratorTool } from './techniqueGenerator.js'
 import type { KnowledgeBase } from '../core/knowledgeBase.js'
+
+const READ_ONLY_TOOLS = new Set([
+  'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'FindingList',
+  'WeaponRadar', 'DocRead', 'EnvAnalyzer', 'TechniqueGenerator',
+  'KnowledgeQuery', 'CheckDispatch', 'GetDispatchResult',
+])
+
+const CONCURRENCY_SAFE_TOOLS = new Set([
+  'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch',
+  'WeaponRadar', 'FindingList', 'MultiScan',
+  'Bash', 'Agent', 'MultiAgent',
+  'DispatchAgent', 'CheckDispatch', 'GetDispatchResult',
+  'C2', 'ShellSession', 'TmuxSession',
+  'EnvAnalyzer', 'TechniqueGenerator', 'DocRead', 'KnowledgeQuery',
+])
+
+const CACHEABLE_TOOLS = new Set([
+  'WebFetch', 'WebSearch', 'WeaponRadar', 'DocRead', 'EnvAnalyzer', 'TechniqueGenerator', 'KnowledgeQuery',
+])
+
+const LONG_RUNNING_TOOLS = new Set([
+  'Bash', 'MultiScan', 'WeaponRadar', 'WebSearch', 'C2',
+])
+
+function defaultRuntimeForTool(name: string): ToolRuntimeMetadata {
+  return {
+    readOnly: READ_ONLY_TOOLS.has(name),
+    concurrencySafe: CONCURRENCY_SAFE_TOOLS.has(name),
+    cacheable: CACHEABLE_TOOLS.has(name),
+    cacheTtlMs: ['WebFetch', 'WebSearch'].includes(name) ? 60 * 60 * 1000 : undefined,
+    longRunning: LONG_RUNNING_TOOLS.has(name),
+  }
+}
+
+function withDefaultRuntime(tool: Tool): Tool {
+  return {
+    ...tool,
+    runtime: {
+      ...defaultRuntimeForTool(tool.name),
+      ...(tool.runtime ?? {}),
+    },
+  }
+}
 
 export function createTools(extraTools: Tool[] = [], knowledgeBase?: KnowledgeBase): Tool[] {
   const tools: Tool[] = [
@@ -59,7 +102,7 @@ export function createTools(extraTools: Tool[] = [], knowledgeBase?: KnowledgeBa
     tools.push(new KnowledgeQueryTool(knowledgeBase))
   }
 
-  return tools
+  return tools.map(withDefaultRuntime)
 }
 
 export function getToolDefinitions(tools: Tool[]) {
@@ -68,6 +111,26 @@ export function getToolDefinitions(tools: Tool[]) {
 
 export function findTool(tools: Tool[], name: string): Tool | undefined {
   return tools.find((t) => t.name === name)
+}
+
+export function getToolRuntime(tools: Tool[], name: string): ToolRuntimeMetadata {
+  return findTool(tools, name)?.runtime ?? defaultRuntimeForTool(name)
+}
+
+export function isPlanModeTool(tools: Tool[], name: string): boolean {
+  return getToolRuntime(tools, name).readOnly === true
+}
+
+export function isConcurrencySafeTool(tools: Tool[], name: string): boolean {
+  return getToolRuntime(tools, name).concurrencySafe === true
+}
+
+export function isCacheableTool(tools: Tool[], name: string): boolean {
+  return getToolRuntime(tools, name).cacheable === true
+}
+
+export function isLongRunningTool(tools: Tool[], name: string): boolean {
+  return getToolRuntime(tools, name).longRunning === true
 }
 
 export {
