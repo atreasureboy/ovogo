@@ -9,7 +9,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs tests/e2e/*.test.mjs",
+    "test:e2e": "npm run build && node --test tests/e2e/*.test.mjs",
     "start": "node dist/bin/ovogogogo.js",
     "dev": "tsx bin/ovogogogo.ts"
   },
