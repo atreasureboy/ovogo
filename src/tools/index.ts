@@ -61,13 +61,11 @@ function defaultRuntimeForTool(name: string): ToolRuntimeMetadata {
 }
 
 function withDefaultRuntime(tool: Tool): Tool {
-  return {
-    ...tool,
-    runtime: {
-      ...defaultRuntimeForTool(tool.name),
-      ...(tool.runtime ?? {}),
-    },
+  tool.runtime = {
+    ...defaultRuntimeForTool(tool.name),
+    ...(tool.runtime ?? {}),
   }
+  return tool
 }
 
 export function createTools(extraTools: Tool[] = [], knowledgeBase?: KnowledgeBase): Tool[] {
