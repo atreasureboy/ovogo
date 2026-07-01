@@ -14,10 +14,10 @@ test('PayloadGenerator is registered and discoverable', () => {
   assert.equal(found, tool)
 })
 
-test('PayloadGenerator definition includes all 11 categories', () => {
+test('PayloadGenerator definition includes all 14 categories', () => {
   const def = tool.definition
   const enumStr = def.function.parameters.properties.category.enum.join(',')
-  for (const c of ['xss', 'sqli', 'lfi', 'rfi', 'deserialization', 'path_traversal', 'xxe', 'ssrf', 'cmdi', 'ssti', 'crlf', 'smuggle']) {
+  for (const c of ['xss', 'sqli', 'lfi', 'rfi', 'deserialization', 'path_traversal', 'xxe', 'ssrf', 'cmdi', 'ssti', 'crlf', 'smuggle', 'nosqli', 'graphql', 'jwt']) {
     assert.ok(enumStr.includes(c), `category ${c} missing from enum`)
   }
 })
@@ -93,6 +93,36 @@ test('Missing category returns error', async () => {
   const r = await tool.execute({}, ctx)
   assert.equal(r.isError, true)
   assert.match(r.content, /must provide.*category/i)
+})
+
+test('NoSQLi payloads cover MongoDB $ne/$regex/$where + CouchDB + Cassandra', async () => {
+  const r = await tool.execute({ category: 'nosqli', nosql_db: 'all', context: 'all' }, ctx)
+  assert.equal(r.isError, false)
+  assert.match(r.content, /\$ne/)
+  assert.match(r.content, /\$regex/)
+  assert.match(r.content, /\$where/)
+  assert.match(r.content, /CouchDB/)
+  assert.match(r.content, /CQL|Cassandra/)
+})
+
+test('GraphQL payloads cover introspection + batch + IDOR + sqli-via-graphql', async () => {
+  const r = await tool.execute({ category: 'graphql', attack: 'all', endpoint: '/graphql' }, ctx)
+  assert.equal(r.isError, false)
+  assert.match(r.content, /__schema/)
+  assert.match(r.content, /Batch/)
+  assert.match(r.content, /IDOR/)
+  assert.match(r.content, /sqli-via-graphql|SQL via resolver/i)
+})
+
+test('JWT payloads cover alg=none + alg-confusion + weak-secret + kid-injection + jwk + x5u', async () => {
+  const r = await tool.execute({ category: 'jwt', attack: 'all' }, ctx)
+  assert.equal(r.isError, false)
+  assert.match(r.content, /alg.*none/i)
+  assert.match(r.content, /alg-confusion|HS256.*RS256|RS256.*HS256/i)
+  assert.match(r.content, /weak|jwt-cracker|hashcat/i)
+  assert.match(r.content, /kid.*injection/i)
+  assert.match(r.content, /jwk/i)
+  assert.match(r.content, /x5u/i)
 })
 
 test('PayloadGenerator is included in default tool set', () => {

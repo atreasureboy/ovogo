@@ -14,6 +14,7 @@ import type { Renderer } from '../ui/renderer.js'
 import type { ExecutionEngine } from './engine.js'
 import { AsyncTaskScheduler } from './taskScheduler.js'
 import { OpenAICompatibleModelClient, type ModelClient } from './modelClient.js'
+import { type Finding, parseFindingFromText, inferNextStep, shouldAutoProgress, buildChainContext } from './attackChain.js'
 
 // ─── Phase definitions ──────────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ export class TaskDAG {
 export class PhaseMachine {
   current: PhaseName = 'init'
   history: PhaseName[] = []
-  findings: Array<{ severity: string; title: string; phase: string }> = []
+  findings: Finding[] = []
   ports: string[] = []
   services: string[] = []
   shellCount = 0
@@ -157,9 +158,21 @@ export class PhaseMachine {
     return true
   }
 
-  /** Record a discovery */
-  recordFinding(severity: string, title: string): void {
-    this.findings.push({ severity, title, phase: this.current })
+  /** Record a discovery — accepts either legacy (severity+title) or full Finding */
+  recordFinding(severityOrFinding: string | Finding, titleArg?: string): void {
+    if (typeof severityOrFinding === 'string') {
+      // Legacy signature
+      this.findings.push({
+        severity: (severityOrFinding as 'critical' | 'high' | 'medium' | 'low' | 'info') ?? 'info',
+        title: titleArg ?? '',
+        phase: this.current,
+        confidence: 50,
+        vulnType: 'unknown',
+        discoveredAt: Date.now(),
+      })
+    } else {
+      this.findings.push(severityOrFinding)
+    }
   }
 
   /** Record open ports/services */
@@ -178,13 +191,18 @@ export class PhaseMachine {
     this.credentialCount += n
   }
 
+  /** Get high-priority findings suitable for chain inference */
+  getHighConfidenceFindings(): Finding[] {
+    return this.findings.filter((f) => f.confidence >= 60)
+  }
+
   /** Get a concise state summary for LLM */
   toSummary(): string {
     const criticalFindings = this.findings.filter((f) => f.severity === 'critical' || f.severity === 'high')
     return [
       `当前阶段: ${this.current} (${PHASES[this.current]?.description ?? ''})`,
       `已完成阶段: ${this.history.join(', ') || '无'}`,
-      `发现: ${this.findings.length} 个漏洞 (${criticalFindings.length} 个高危以上)`,
+      `发现: ${this.findings.length} 个漏洞 (${criticalFindings.length} 个高危以上, ${this.getHighConfidenceFindings().length} 个高置信度)`,
       `开放端口: ${this.ports.length} 个`,
       `Web 服务: ${this.services.length} 个`,
       `Shell: ${this.shellCount} 个`,
@@ -192,7 +210,7 @@ export class PhaseMachine {
       ...(criticalFindings.length > 0
         ? ['\n高危发现:']
         : []),
-      ...criticalFindings.slice(-5).map((f) => `  [${f.severity.toUpperCase()}] ${f.title} (阶段: ${f.phase})`),
+      ...criticalFindings.slice(-5).map((f) => `  [${f.severity.toUpperCase()}] ${f.title} (类型: ${f.vulnType}, 置信度: ${f.confidence}%)`),
     ].join('\n')
   }
 
@@ -429,11 +447,15 @@ export class BattleOrchestrator {
     const schedulerSummary = this.scheduler.toSummary()
     const allowedNext = this.phaseMachine.allowedNext()
     const roePrompt = this.buildRoEPrompt()
+    const reconContext = this.buildReconContext()
+    const chainContext = buildChainContext(this.phaseMachine.findings)
 
     const userPrompt = [
       `## 当前状态`,
       stateSummary,
       '',
+      reconContext ? reconContext : '',
+      chainContext ? chainContext : '',
       `## 调度器状态`,
       schedulerSummary,
       '',
@@ -446,7 +468,7 @@ export class BattleOrchestrator {
       roePrompt,
       '',
       `请决定下一步行动。输出 JSON 格式。`,
-    ].join('\n')
+    ].filter(Boolean).join('\n')
 
     try {
       const content = await this.modelClient.completeText({
@@ -460,7 +482,7 @@ export class BattleOrchestrator {
         responseFormat: 'json_object',
       })
 
-      if (!content) return null
+      if (!content) return this.autoProgressionDecision()
 
       const decision = JSON.parse(content) as SupervisorDecision
 
@@ -472,8 +494,35 @@ export class BattleOrchestrator {
 
       return decision
     } catch {
-      return this.fallbackDecision()
+      return this.autoProgressionDecision() ?? this.fallbackDecision()
     }
+  }
+
+  /** Auto-progression decision based on attack-chain rules (no LLM call needed). */
+  private autoProgressionDecision(): SupervisorDecision | null {
+    const pm = this.phaseMachine
+    const allowed = pm.allowedNext()
+
+    // Find highest-confidence finding that should auto-progress
+    const candidates = pm.findings
+      .filter((f) => shouldAutoProgress(f))
+      .sort((a, b) => b.confidence - a.confidence)
+
+    for (const f of candidates) {
+      const step = inferNextStep(f, this.config.primaryTarget ?? '目标')
+      if (!step) continue
+      if (!allowed.includes(step.phase)) continue
+      return {
+        reasoning: `[自动推进] 发现 ${f.vulnType} (${f.severity}, 置信度 ${f.confidence}%) → ${step.phase}`,
+        next_phase: step.phase,
+        dispatch: [{
+          agent_type: step.agentType,
+          prompt: step.prompt,
+          priority: f.severity === 'critical' ? 'high' : 'medium',
+        }],
+      }
+    }
+    return null
   }
 
   /** Rule-based fallback decision */
@@ -562,19 +611,33 @@ export class BattleOrchestrator {
     return lines.join('\n')
   }
 
-  /** Extract findings from agent output and update phase machine */
+  /** Extract findings from agent output and update phase machine.
+   *  Uses attackChain.parseFindingFromText to enrich each finding with vuln_type + confidence. */
   private extractFindings(taskId: string, output: string): void {
-    // Simple regex-based extraction
-    const criticalMatches = output.match(/\[(CRITICAL|HIGH|MEDIUM|LOW)\]\s+(.+)/gi)
-    if (criticalMatches) {
-      const priorCount = this.phaseMachine.findings.length
-      for (const match of criticalMatches) {
-        const sevMatch = match.match(/\[(CRITICAL|HIGH|MEDIUM|LOW)\]/i)
-        const sev = sevMatch ? sevMatch[1].toLowerCase() : 'info'
-        const title = match.replace(/\[.*?\]\s*/, '').trim()
-        this.phaseMachine.recordFinding(sev, title)
+    const priorCount = this.phaseMachine.findings.length
+
+    // Split output into lines and parse each [SEVERITY] marker as a potential finding
+    const lines = output.split(/\r?\n/)
+    for (const line of lines) {
+      if (/\[(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]/i.test(line)) {
+        const finding = parseFindingFromText(line, this.phaseMachine.current)
+        if (finding) this.phaseMachine.recordFinding(finding)
       }
+    }
+
+    if (this.phaseMachine.findings.length > priorCount) {
       this.taskDAG.update(taskId, { findings: this.phaseMachine.findings.length - priorCount })
+
+      // Auto-progression: any new high-confidence finding should escalate
+      const newFindings = this.phaseMachine.findings.slice(priorCount)
+      for (const f of newFindings) {
+        if (shouldAutoProgress(f)) {
+          this.renderer.info(
+            `[AttackChain] 🔥 发现 ${f.vulnType} (置信度 ${f.confidence}%) — ` +
+            `建议自动推进到 exploit 阶段`,
+          )
+        }
+      }
     }
 
     // Shell detection
@@ -587,6 +650,35 @@ export class BattleOrchestrator {
     for (const m of portMatches) {
       this.phaseMachine.recordRecon([`${m[1]}/${m[2]}`], [])
     }
+
+    // Service detection (e.g. "22/tcp open ssh OpenSSH 7.4")
+    const svcMatches = output.matchAll(/(\d+)\/(?:tcp|udp)\s+open\s+(\S+)(?:\s+(.+))?/gi)
+    for (const m of svcMatches) {
+      const svcName = m[3]?.split(/\s+/)[0] ?? m[2]
+      if (svcName) this.phaseMachine.recordRecon([], [svcName])
+    }
+  }
+
+  /** Build context to inject into vuln-scan / exploit prompts based on recon state */
+  private buildReconContext(): string {
+    const pm = this.phaseMachine
+    if (pm.ports.length === 0 && pm.services.length === 0) return ''
+
+    const lines: string[] = ['## 已知资产（从上一阶段结果注入）']
+    if (pm.ports.length > 0) {
+      lines.push(`- 开放端口: ${pm.ports.join(', ')}`)
+    }
+    if (pm.services.length > 0) {
+      lines.push(`- 已识别服务: ${[...new Set(pm.services)].join(', ')}`)
+    }
+    if (pm.findings.length > 0) {
+      lines.push(`- 已有发现: ${pm.findings.length} 个 (${pm.findings.filter((f) => f.severity === 'critical' || f.severity === 'high').length} 个高危以上)`)
+      const lastCritical = pm.findings.filter((f) => f.severity === 'critical' || f.severity === 'high').slice(-3)
+      for (const f of lastCritical) {
+        lines.push(`  · [${f.severity.toUpperCase()}] ${f.title}${f.target ? ` @ ${f.target}` : ''}`)
+      }
+    }
+    return lines.join('\n')
   }
 
   /** Render final summary */

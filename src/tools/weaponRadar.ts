@@ -38,10 +38,114 @@ interface RadarOutput {
   error?:    string
 }
 
-function formatSingleResult(output: RadarOutput): string {
+// ── Client-side filtering ──────────────────────────────────────────────────
+
+export interface FilterOpts {
+  minScore?: number
+  maxOpsec?: number
+  cveFilter?: string[]
+  excludeKeywords?: string[]
+  topN?: number
+}
+
+export interface FilterStats {
+  before: number
+  after: number
+  droppedMinScore: number
+  droppedOpsec: number
+  droppedCve: number
+  droppedKeyword: number
+  truncatedToTopN: number
+}
+
+export function applyFilters(results: RadarResult[], opts: FilterOpts): { results: RadarResult[]; stats: FilterStats } {
+  const stats: FilterStats = {
+    before: results.length,
+    after: 0,
+    droppedMinScore: 0,
+    droppedOpsec: 0,
+    droppedCve: 0,
+    droppedKeyword: 0,
+    truncatedToTopN: 0,
+  }
+  let filtered = results
+
+  if (opts.minScore !== undefined && opts.minScore > 0) {
+    const before = filtered.length
+    filtered = filtered.filter((r) => r.score_pct >= opts.minScore!)
+    stats.droppedMinScore = before - filtered.length
+  }
+
+  if (opts.maxOpsec !== undefined && opts.maxOpsec < 5) {
+    const before = filtered.length
+    filtered = filtered.filter((r) => r.opsec_risk === undefined || r.opsec_risk <= opts.maxOpsec!)
+    stats.droppedOpsec = before - filtered.length
+  }
+
+  if (opts.cveFilter && opts.cveFilter.length > 0) {
+    const wanted = new Set(opts.cveFilter.map((c) => c.toUpperCase()))
+    const before = filtered.length
+    filtered = filtered.filter((r) => (r.cve_list ?? []).some((c) => wanted.has(c.toUpperCase())))
+    stats.droppedCve = before - filtered.length
+  }
+
+  if (opts.excludeKeywords && opts.excludeKeywords.length > 0) {
+    const lower = opts.excludeKeywords.map((k) => k.toLowerCase())
+    const before = filtered.length
+    filtered = filtered.filter((r) => {
+      const hay = `${r.module_name} ${r.attack_logic ?? ''}`.toLowerCase()
+      return !lower.some((kw) => hay.includes(kw))
+    })
+    stats.droppedKeyword = before - filtered.length
+  }
+
+  // Sort by score desc before topN (defensive — API usually returns ranked, but enforce)
+  filtered = [...filtered].sort((a, b) => b.score_pct - a.score_pct)
+
+  if (opts.topN !== undefined && opts.topN > 0 && filtered.length > opts.topN) {
+    stats.truncatedToTopN = filtered.length - opts.topN
+    filtered = filtered.slice(0, opts.topN)
+  }
+
+  stats.after = filtered.length
+  return { results: filtered, stats }
+}
+
+export function formatFilterSummary(stats: FilterStats, opts: FilterOpts): string {
+  const parts: string[] = []
+  if (opts.minScore !== undefined) parts.push(`min_score≥${opts.minScore}`)
+  if (opts.maxOpsec !== undefined) parts.push(`opsec≤${opts.maxOpsec}`)
+  if (opts.cveFilter?.length) parts.push(`cve∈{${opts.cveFilter.join(',')}}`)
+  if (opts.excludeKeywords?.length) parts.push(`exclude={${opts.excludeKeywords.join(',')}}`)
+  if (opts.topN !== undefined) parts.push(`topN=${opts.topN}`)
+  const filtStr = parts.length > 0 ? ` [过滤: ${parts.join(' | ')}]` : ''
+  return `${stats.before}→${stats.after} 条 (score-:${stats.droppedMinScore} opsec-:${stats.droppedOpsec} cve-:${stats.droppedCve} kw-:${stats.droppedKeyword} topN-:${stats.truncatedToTopN})${filtStr}`
+}
+
+function formatSummaryResults(output: RadarOutput, stats: FilterStats, opts: FilterOpts): string {
   const lines: string[] = [
     `武器库检索 — 查询: "${output.query}"`,
     `返回 ${output.total} 条 | 编码 ${output.encode_ms}ms | 检索 ${output.search_ms}ms`,
+    `过滤后${formatFilterSummary(stats, opts)}`,
+    '─'.repeat(72),
+  ]
+  for (const r of output.results) {
+    const scoreBar = r.score_pct >= 80 ? '★★★' : r.score_pct >= 60 ? '★★☆' : '★☆☆'
+    const cves = r.cve_list?.length ? ` [${r.cve_list.join(',')}]` : ''
+    const risk = r.opsec_risk !== undefined ? ` opsec:${r.opsec_risk}/5` : ''
+    lines.push(`#${r.rank} [${r.score_pct}%]${scoreBar}${risk}${cves} ${r.module_name}`)
+  }
+  if (output.results.length === 0) {
+    lines.push('(过滤后无匹配结果)')
+  }
+  return lines.join('\n')
+}
+
+function formatSingleResult(output: RadarOutput, stats?: FilterStats, opts?: FilterOpts): string {
+  const lines: string[] = [
+    `武器库检索 — 查询: "${output.query}"`,
+    `返回 ${output.total} 条 | 编码 ${output.encode_ms}ms | 检索 ${output.search_ms}ms`,
+    ...(stats && opts ? [`过滤后${formatFilterSummary(stats, opts)}`] : []),
     '─'.repeat(72),
   ]
 
@@ -73,18 +177,24 @@ function formatSingleResult(output: RadarOutput): string {
     lines.push('')
   }
 
+  if (output.results.length === 0 && stats) {
+    lines.push(`(过滤后无匹配结果 — 原始 ${stats.before} 条全部被过滤掉)`)
+  }
+
   return lines.join('\n').trimEnd()
 }
 
-function formatBatchResults(outputs: RadarOutput[]): string {
+function formatBatchResults(outputs: RadarOutput[], opts: FilterOpts, fmt: 'detailed' | 'summary'): string {
   return outputs.map((output, i) => {
     if (output.error) {
       return `[${i + 1}] 查询 "${output.query}" 失败: ${output.error}`
     }
-    if (!output.results || output.results.length === 0) {
-      return `[${i + 1}] 查询 "${output.query}": 未找到匹配 PoC`
+    const { results: filtered, stats } = applyFilters(output.results ?? [], opts)
+    const out = { ...output, results: filtered }
+    if (filtered.length === 0) {
+      return `[${i + 1}] 查询 "${output.query}"${formatFilterSummary(stats, opts)}: 无匹配结果`
     }
-    return formatSingleResult(output)
+    return fmt === 'summary' ? formatSummaryResults(out, stats, opts) : formatSingleResult(out, stats, opts)
   }).join('\n\n' + '═'.repeat(72) + '\n\n')
 }
 
@@ -129,6 +239,14 @@ export class WeaponRadarTool implements Tool {
 
 返回结果包含：攻击逻辑分析、完整可执行 PoC YAML、nuclei 执行命令（可直接复制运行）。
 
+## 客户端过滤（命中即丢弃，不再返回）
+- min_score: 最低相似度（0-100），低于此值的结果丢弃
+- max_opsec: 最高噪音风险（0-5），超过此值的高噪音 PoC 丢弃（适合静默渗透）
+- cve_filter: 只保留指定 CVE 列表（如 ["CVE-2021-44228","CVE-2017-9805"]）
+- exclude_keywords: 排除名称/描述含这些关键字的结果（如 ["Windows","Microsoft"] 只看 Linux）
+- top_n: 过滤后最多保留 N 条（按 score 降序）
+- output_format: "detailed"（默认，含 PoC 代码） | "summary"（仅一行简介，适合大量候选快速浏览）
+
 批量查询优化：如需同时检索多个目标/漏洞，使用 queries[] 参数，比多次调用快很多。`,
       parameters: {
         type: 'object',
@@ -150,6 +268,33 @@ export class WeaponRadarTool implements Tool {
             type: 'boolean',
             description: '设为 true 时不返回 PoC YAML 代码（默认 false，即默认返回完整可执行 PoC）。',
           },
+          min_score: {
+            type: 'number',
+            description: '最低相似度阈值 0-100，过滤掉 score_pct 低于此值的结果',
+          },
+          max_opsec: {
+            type: 'number',
+            description: '最高噪音风险 0-5，过滤掉 opsec_risk 超过此值的高噪音 PoC（适合静默渗透）',
+          },
+          cve_filter: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '只保留指定 CVE 列表（如 ["CVE-2021-44228","CVE-2017-9805"]）',
+          },
+          exclude_keywords: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '排除名称/描述含这些关键字的结果（如 ["Windows","Microsoft"] 只看 Linux）',
+          },
+          top_n: {
+            type: 'number',
+            description: '过滤后最多保留 N 条（按 score 降序截断）',
+          },
+          output_format: {
+            type: 'string',
+            enum: ['detailed', 'summary'],
+            description: '"detailed"=含 PoC 代码（默认），"summary"=每条一行简介（适合大量候选快速浏览）',
+          },
         },
         required: [],
       },
@@ -162,6 +307,14 @@ export class WeaponRadarTool implements Tool {
     const topK     = Math.min(Math.max(Number(input.top_k ?? 3), 1), 10)
     const hideCode = Boolean(input.hide_code ?? false)
     const base     = getApiBase()
+    const fmt      = (input.output_format === 'summary' ? 'summary' : 'detailed') as 'detailed' | 'summary'
+    const filterOpts: FilterOpts = {
+      minScore: input.min_score !== undefined ? Number(input.min_score) : undefined,
+      maxOpsec: input.max_opsec !== undefined ? Number(input.max_opsec) : undefined,
+      cveFilter: Array.isArray(input.cve_filter) ? (input.cve_filter as string[]) : undefined,
+      excludeKeywords: Array.isArray(input.exclude_keywords) ? (input.exclude_keywords as string[]) : undefined,
+      topN: input.top_n !== undefined ? Number(input.top_n) : undefined,
+    }
 
     try {
       // 批量模式
@@ -175,7 +328,7 @@ export class WeaponRadarTool implements Tool {
           context.signal,
         ) as unknown as { results: RadarOutput[] }
 
-        return { content: formatBatchResults(resp.results), isError: false }
+        return { content: formatBatchResults(resp.results, filterOpts, fmt), isError: false }
       }
 
       // 单查询模式
@@ -196,7 +349,18 @@ export class WeaponRadarTool implements Tool {
         return { content: `武器库中未找到匹配 "${query}" 的 PoC，尝试换用不同关键词。`, isError: false }
       }
 
-      return { content: formatSingleResult(resp), isError: false }
+      const { results: filtered, stats } = applyFilters(resp.results, filterOpts)
+      if (filtered.length === 0) {
+        return {
+          content: `武器库中匹配 "${query}" 的 ${resp.results.length} 条全部被客户端过滤掉 — ${formatFilterSummary(stats, filterOpts)}`,
+          isError: false,
+        }
+      }
+      const out = { ...resp, results: filtered }
+      return {
+        content: fmt === 'summary' ? formatSummaryResults(out, stats, filterOpts) : formatSingleResult(out, stats, filterOpts),
+        isError: false,
+      }
 
     } catch (err: unknown) {
       const e = err as Error
