@@ -1,0 +1,30 @@
+{
+  "profile": {
+    "name": "redteam"
+  },
+  "runtime": {
+    "model": "gpt-4o",
+    "maxIterations": 200,
+    "maxConcurrentToolCalls": 8,
+    "permissionMode": "auto",
+    "readableRoots": [],
+    "writableRoots": []
+  },
+  "hooks": {
+    "PreToolCall": [
+      {
+        "matcher": "Bash",
+        "command": "echo 'Tool $OVOGO_TOOL_NAME called with: $OVOGO_TOOL_INPUT'"
+      }
+    ]
+  },
+  "engagement": {
+    "name": "example-engagement",
+    "phase": "recon",
+    "targets": ["https://target.example.com"],
+    "out_of_scope": ["*.internal.example.com"],
+    "start_date": "2026-07-01",
+    "end_date": "2026-07-31",
+    "notes": "Authorized red team engagement per signed scope"
+  }
+}

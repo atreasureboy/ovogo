@@ -1,7 +1,7 @@
 {
   "name": "ovogogogo",
-  "version": "0.1.0",
-  "description": "Lightweight OpenAI-compatible autonomous code execution engine",
+  "version": "0.2.0",
+  "description": "AI-driven autonomous red team coordination agent — Think-Act-Observe engine with multi-agent orchestration, protection-aware exploitation, and cross-turn memory",
   "type": "module",
   "main": "dist/bin/ovogogogo.js",
   "bin": {

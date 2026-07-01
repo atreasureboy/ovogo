@@ -1,0 +1,17 @@
+# Auto-detect text files, ensure LF line endings on commit
+* text=auto eol=lf
+
+# TypeScript source — keep LF, diff with reasonable algorithm
+*.ts   text eol=lf diff=ts
+*.mts  text eol=lf diff=ts
+*.cts  text eol=lf diff=ts
+*.json text eol=lf
+*.md   text eol=lf
+
+# Shell scripts must keep LF even on Windows checkouts
+*.sh   text eol=lf
+*.bat  text eol=crlf
+
+# Generated build output
+dist/           binary -diff
+*.tsbuildinfo   binary

@@ -27,6 +27,7 @@
   - [工具系统（22 Tools）](#工具系统22-tools)
   - [安全基础设施](#安全基础设施)
   - [环境感知与绕过引擎](#环境感知与绕过引擎)
+  - [工程化能力](#工程化能力)
 - [快速开始](#快速开始)
 - [项目结构](#项目结构)
 - [设计决策](#设计决策)
@@ -450,6 +451,84 @@ MultiScan (并行扫描执行器)
 │   └── nmap -p- / nuclei 全模板 / hydra → 立即返回 PID + 输出路径
 └── 统一输出: 状态图标 + 耗时 + 输出文件大小 + 末尾预览
 ```
+
+---
+
+### 工程化能力
+
+Ovogo 在 v0.2.0 起增加了一套面向生产使用的工程化基础设施层，使核心引擎可以安全地在受控环境运行、并对每一次会话提供完整的可观测性。
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 工程化能力分层                                                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│   ┌─────────────────────────────────────────────────────────────────────┐ │
+│   │  ModelClient 抽象层 (src/core/modelClient.ts)                       │ │
+│   │  ├─ ModelClient 接口：streamChat() + completeText()                  │ │
+│   │  └─ OpenAICompatibleModelClient — 默认实现，未来可换 Anthropic / 本地│ │
+│   └─────────────────────────────────────────────────────────────────────┘ │
+│                                  ▲                                         │
+│   ┌──────────────────────────────┴──────────────────────────────────────┐ │
+│   │  Redaction 层 (src/core/redaction.ts)                               │ │
+│   │  • 键名检测: api_key / token / password / cookie / private_key 等  │ │
+│   │  • 值正则: Bearer/JWT/sk-/AKIA/PEM/Cookie/URL 嵌入凭证（12+ 种）    │ │
+│   │  • 循环引用 + 深度限制                                              │ │
+│   │  • 全链路调用：eventLog / episodic / dispatch / scheduler / result │ │
+│   └─────────────────────────────────────────────────────────────────────┘ │
+│                                  ▲                                         │
+│   ┌──────────────────────────────┴──────────────────────────────────────┐ │
+│   │  PermissionManager (src/core/permissionManager.ts)                 │ │
+│   │  • 三种模式: auto / ask / deny                                     │ │
+│   │  • 文件路径 scope 校验（cwd + sessionDir + readableRoots +         │ │
+│   │    writableRoots）                                                  │ │
+│   │  • Bash 命令策略（read-only / mutating / dynamic）                  │ │
+│   │  • deny 模式：仅放行 ls/cat/rg/git status 等只读命令               │ │
+│   └─────────────────────────────────────────────────────────────────────┘ │
+│                                  ▲                                         │
+│   ┌──────────────────────────────┴──────────────────────────────────────┐ │
+│   │  ArtifactStore (src/core/artifactStore.ts)                         │ │
+│   │  • 每个 session 独立 artifacts/ 目录 + manifest.ndjson              │ │
+│   │  • sha256 摘要 + 字节数 + 时间戳                                   │ │
+│   │  • 内容自动过 redactText                                           │ │
+│   └─────────────────────────────────────────────────────────────────────┘ │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ CLI 诊断命令（无需 OPENAI_API_KEY）                                          │
+│                                                                             │
+│   $ ovogogogo --doctor                                                    │ │
+│     检查 cwd / API key / settings(zod) / skills / runtime 配置           │
+│   $ ovogogogo --doctor --json                                             │ │
+│     机器可读诊断输出                                                       │ │
+│   $ ovogogogo --doctor --strict                                           │ │
+│     完整性警告时返回非零退出码                                             │ │
+│   $ ovogogogo --events <sessionDir>                                       │ │
+│     汇总 session 事件流（支持 --event-type / --event-source /             │ │
+│     --event-tag / --event-since 过滤）                                    │ │
+│   $ ovogogogo --artifacts <sessionDir>                                    │ │
+│     列出 session 内所有 artifact + 完整性诊断                              │ │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+`.ovogo/settings.json` 范例：
+
+```json
+{
+  "profile": { "name": "redteam" },
+  "runtime": {
+    "model": "gpt-4o",
+    "maxIterations": 200,
+    "maxConcurrentToolCalls": 8,
+    "permissionMode": "auto",
+    "readableRoots": ["/shared/read-only"],
+    "writableRoots": ["/shared/work-output"]
+  }
+}
+```
+
+> 优先级：CLI 参数 > 环境变量 > `.ovogo/settings.json` > 默认值
+>
+> 完整 schema 见 `.ovogo/settings.json.example`；可用 `--doctor --strict` 在 CI 中校验配置合法性。
 
 ---
 
