@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { classifyBashCommand, extractBashReadTargets, extractBashWriteTargets } from '../dist/src/core/bashPolicy.js'
-import { PermissionManager } from '../dist/src/core/permissionManager.js'
+import { PermissionManager, readlineApprovalPrompt } from '../dist/src/core/permissionManager.js'
 
 const manager = new PermissionManager()
 
@@ -43,17 +43,86 @@ test('permission manager allows read-only tools in deny mode', () => {
   assert.equal(decision.allowed, true)
 })
 
-test('permission manager blocks mutating tools in ask mode until approval UI exists', () => {
+test('permission manager marks mutating tools in ask mode as requiring approval', () => {
   const decision = manager.checkTool({
     toolName: 'Bash',
-    input: {},
+    input: { command: 'echo hi > out.txt' },
     mode: 'ask',
     runtime: { readOnly: false },
     cwd: '/workspace',
   })
 
   assert.equal(decision.allowed, false)
+  assert.equal(decision.requiresApproval, true)
   assert.match(decision.reason ?? '', /approval/)
+})
+
+test('permission manager checkToolAsync allows mutating tools when prompt approves', async () => {
+  const customManager = new PermissionManager(async () => true)
+  const decision = await customManager.checkToolAsync({
+    toolName: 'Bash',
+    input: { command: 'echo hi > out.txt' },
+    mode: 'ask',
+    runtime: { readOnly: false },
+    cwd: '/workspace',
+  })
+  assert.equal(decision.allowed, true)
+})
+
+test('permission manager checkToolAsync denies when prompt declines', async () => {
+  const customManager = new PermissionManager(async () => false)
+  const decision = await customManager.checkToolAsync({
+    toolName: 'Bash',
+    input: { command: 'echo hi > out.txt' },
+    mode: 'ask',
+    runtime: { readOnly: false },
+    cwd: '/workspace',
+  })
+  assert.equal(decision.allowed, false)
+  assert.match(decision.reason ?? '', /denied/)
+})
+
+test('permission manager checkToolAsync skips prompt for read-only ask mode', async () => {
+  let promptCalled = false
+  const customManager = new PermissionManager(async () => {
+    promptCalled = true
+    return false
+  })
+  const decision = await customManager.checkToolAsync({
+    toolName: 'Read',
+    input: { file_path: '/workspace/README.md' },
+    mode: 'ask',
+    runtime: { readOnly: true },
+    cwd: '/workspace',
+  })
+  assert.equal(decision.allowed, true)
+  assert.equal(promptCalled, false)
+})
+
+test('readlineApprovalPrompt denies when stdin is not a TTY', async () => {
+  const fakeStdin = { isTTY: false }
+  const fakeStdout = { write: () => {} }
+  const prompt = readlineApprovalPrompt({ stdin: fakeStdin, stdout: fakeStdout })
+  const approved = await prompt({
+    toolName: 'Bash',
+    input: { command: 'echo hi' },
+    mode: 'ask',
+    cwd: '/workspace',
+  })
+  assert.equal(approved, false)
+})
+
+test('readlineApprovalPrompt denies when stdin is not a TTY', async () => {
+  const fakeStdin = { isTTY: false }
+  const fakeStdout = { write: () => {} }
+  const prompt = readlineApprovalPrompt({ stdin: fakeStdin, stdout: fakeStdout })
+  const approved = await prompt({
+    toolName: 'Bash',
+    input: { command: 'echo hi' },
+    mode: 'ask',
+    cwd: '/workspace',
+  })
+  assert.equal(approved, false)
 })
 
 test('bash classifier marks simple inspection pipelines read-only', () => {

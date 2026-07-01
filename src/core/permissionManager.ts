@@ -1,6 +1,8 @@
 import type { ToolRuntimeMetadata } from './types.js'
 import { classifyBashCommand, extractBashReadTargets, extractBashWriteTargets } from './bashPolicy.js'
 import { isAbsolute, relative, resolve } from 'path'
+import { createInterface } from 'node:readline/promises'
+import { stdin as defaultStdin, stdout as defaultStdout } from 'node:process'
 
 export type PermissionMode = 'auto' | 'ask' | 'deny'
 
@@ -18,15 +20,77 @@ export interface ToolPermissionRequest {
 export interface ToolPermissionDecision {
   allowed: boolean
   reason?: string
+  /** When true, the caller may prompt the user for approval and re-check. */
+  requiresApproval?: boolean
+}
+
+/**
+ * Async function that prompts the user to approve a tool call. Return `true`
+ * to allow, `false` to deny. Throw to surface a system error.
+ */
+export type ApprovalPrompt = (request: ToolPermissionRequest) => Promise<boolean>
+
+export interface ReadlinePromptOptions {
+  stdin?: NodeJS.ReadableStream
+  stdout?: NodeJS.WritableStream
+}
+
+/**
+ * Default approval prompt using node:readline/promises. Falls back to deny
+ * (returns `false`) when stdin is not a TTY — i.e. in CI or piped input.
+ */
+export function readlineApprovalPrompt(options: ReadlinePromptOptions = {}): ApprovalPrompt {
+  const stdin = options.stdin ?? defaultStdin
+  const stdout = options.stdout ?? defaultStdout
+  return async (request) => {
+    const isTTY = (stdin as { isTTY?: boolean }).isTTY === true
+    if (!isTTY) return false
+    const rl = createInterface({
+      input: stdin as NodeJS.ReadableStream,
+      output: stdout as NodeJS.WritableStream,
+      terminal: true,
+    })
+    try {
+      const summary = formatApprovalSummary(request)
+      const answer = await rl.question(`Allow ${summary}? [y/N] `)
+      return /^y(es)?$/i.test(answer.trim())
+    } finally {
+      rl.close()
+    }
+  }
+}
+
+function formatApprovalSummary(request: ToolPermissionRequest): string {
+  if (request.toolName === 'Bash') {
+    const cmd = String(request.input.command ?? '').slice(0, 80)
+    return `Bash(${cmd})`
+  }
+  const inputSummary = JSON.stringify(request.input).slice(0, 80)
+  return `${request.toolName}(${inputSummary})`
 }
 
 /**
  * Centralized permission preflight for tool calls.
  *
- * This is intentionally small: it creates one runtime gate that can later grow
- * into interactive approval, persistent allow/deny rules, and workspace ACLs.
+ * `checkTool` is synchronous and returns one of three states:
+ *   - `{ allowed: true }` — proceed
+ *   - `{ allowed: false, reason }` — deny with reason
+ *   - `{ allowed: false, requiresApproval: true, reason }` — needs user prompt
+ *
+ * For `ask` mode, use `checkToolAsync` which awaits the configured approval
+ * prompt before producing a final decision.
  */
 export class PermissionManager {
+  private approvalPrompt: ApprovalPrompt
+
+  constructor(approvalPrompt: ApprovalPrompt = readlineApprovalPrompt()) {
+    this.approvalPrompt = approvalPrompt
+  }
+
+  setApprovalPrompt(prompt: ApprovalPrompt): void {
+    this.approvalPrompt = prompt
+  }
+
   checkTool(request: ToolPermissionRequest): ToolPermissionDecision {
     const fileDecision = this.checkFilePathScope(request)
     if (!fileDecision.allowed) return fileDecision
@@ -55,13 +119,24 @@ export class PermissionManager {
     if (request.mode === 'ask' && !readOnly) {
       return {
         allowed: false,
+        requiresApproval: true,
         reason: bashPolicy?.reason
-          ? `Permission mode "ask" requires approval for this Bash command (${bashPolicy.reason}), but interactive approval is not implemented yet.`
-          : `Permission mode "ask" requires approval for ${request.toolName}, but interactive approval is not implemented yet.`,
+          ? `Permission mode "ask" requires approval for this Bash command (${bashPolicy.reason}).`
+          : `Permission mode "ask" requires approval for ${request.toolName}.`,
       }
     }
 
     return { allowed: true }
+  }
+
+  async checkToolAsync(request: ToolPermissionRequest): Promise<ToolPermissionDecision> {
+    const base = this.checkTool(request)
+    if (base.allowed || !base.requiresApproval) return base
+
+    const approved = await this.approvalPrompt(request)
+    return approved
+      ? { allowed: true }
+      : { allowed: false, reason: 'User denied approval' }
   }
 
   private checkFilePathScope(request: ToolPermissionRequest): ToolPermissionDecision {

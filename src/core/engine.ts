@@ -813,7 +813,7 @@ export class ExecutionEngine {
     if (!tool) {
       return { content: `Unknown tool: ${toolName}`, isError: true }
     }
-    const permission = this.permissionManager.checkTool({
+    const permission = await this.permissionManager.checkToolAsync({
       toolName,
       input,
       mode: this.config.permissionMode,
