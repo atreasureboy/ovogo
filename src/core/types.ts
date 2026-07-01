@@ -194,6 +194,8 @@ export interface EngineConfig {
   readableRoots?: string[]
   /** Additional roots for write/edit/output tools. cwd and sessionDir are always included. */
   writableRoots?: string[]
+  /** Persistent permission rules from .ovogo/permissions.json (deny wins). */
+  permissionRules?: import('../config/permissionRules.js').PermissionRules
 }
 
 export interface TurnResult {

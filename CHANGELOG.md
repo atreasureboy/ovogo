@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Interactive ask mode** — `PermissionManager.checkToolAsync` now performs readline-based approval prompts when `permissionMode: ask` and a non-read-only tool is requested. New `requiresApproval` flag on `ToolPermissionDecision` lets callers distinguish "needs prompt" from "hard deny". Non-TTY stdin (CI, pipes) safely denies.
+- **Persistent permission rules** (`src/config/permissionRules.ts`, `.ovogo/permissions.json`) — declarative allow/deny rules evaluated **before** mode checks. Rule format: `ToolName(glob-pattern)`. Examples: `Bash(nmap*)`, `Bash(**rm -rf**)`, `Read(/shared/docs/**)`. **Deny wins** over allow; matched allow short-circuits all other checks. Project rules merge with `~/.ovogo/permissions.json`. Glob semantics: `*` matches anything except `/`, `**` matches including `/`, `?` matches single char.
+- **Tool development guide** (`docs/adding-tools.md`) — walkthrough of creating a new tool, registering it, runtime metadata conventions, where to look for examples.
+
+### Changed
+- `PermissionManager` constructor accepts optional `ApprovalPrompt` and `PermissionRules`. `setRules()` allows runtime updates.
+- `EngineConfig.permissionRules` flows from `loadPermissionRules(cwd)` in the entry point into the engine.
+
 ## [0.2.0] - 2026-07-01
 
 ### Added

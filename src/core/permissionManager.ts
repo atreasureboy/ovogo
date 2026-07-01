@@ -3,6 +3,7 @@ import { classifyBashCommand, extractBashReadTargets, extractBashWriteTargets } 
 import { isAbsolute, relative, resolve } from 'path'
 import { createInterface } from 'node:readline/promises'
 import { stdin as defaultStdin, stdout as defaultStdout } from 'node:process'
+import { evaluateRules, type PermissionRules } from '../config/permissionRules.js'
 
 export type PermissionMode = 'auto' | 'ask' | 'deny'
 
@@ -82,16 +83,41 @@ function formatApprovalSummary(request: ToolPermissionRequest): string {
  */
 export class PermissionManager {
   private approvalPrompt: ApprovalPrompt
+  private rules: PermissionRules
 
-  constructor(approvalPrompt: ApprovalPrompt = readlineApprovalPrompt()) {
+  constructor(
+    approvalPrompt: ApprovalPrompt = readlineApprovalPrompt(),
+    rules: PermissionRules = {},
+  ) {
     this.approvalPrompt = approvalPrompt
+    this.rules = rules
   }
 
   setApprovalPrompt(prompt: ApprovalPrompt): void {
     this.approvalPrompt = prompt
   }
 
+  setRules(rules: PermissionRules): void {
+    this.rules = rules
+  }
+
   checkTool(request: ToolPermissionRequest): ToolPermissionDecision {
+    // Persistent rules take precedence — deny wins over mode/role checks.
+    const ruleDecision = evaluateRules(this.rules, {
+      toolName: request.toolName,
+      input: request.input,
+      cwd: request.cwd,
+    })
+    if (ruleDecision === 'deny') {
+      return {
+        allowed: false,
+        reason: `Denied by .ovogo/permissions.json rule (${request.toolName}).`,
+      }
+    }
+    if (ruleDecision === 'allow') {
+      return { allowed: true }
+    }
+
     const fileDecision = this.checkFilePathScope(request)
     if (!fileDecision.allowed) return fileDecision
 

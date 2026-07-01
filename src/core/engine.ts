@@ -49,6 +49,7 @@ import { PermissionManager } from './permissionManager.js'
 import { OpenAICompatibleModelClient, type ChatStreamChunk, type ModelClient } from './modelClient.js'
 import { partitionToolCalls } from './toolScheduler.js'
 import { ArtifactStore } from './artifactStore.js'
+import type { PermissionRules } from '../config/permissionRules.js'
 
 const MAX_TOOL_RESULT_LENGTH = 20_000
 const DEFAULT_MAX_CONCURRENT_TOOL_CALLS = 8
@@ -259,7 +260,8 @@ export class ExecutionEngine {
   private contextBudget: EngineConfig['contextBudget']
   /** Knowledge extractor — may be undefined if not configured */
   private knowledgeExtractor: KnowledgeExtractor | null = null
-  private permissionManager = new PermissionManager()
+  private permissionManager: PermissionManager
+  private permissionRules: PermissionRules = {}
   private artifactStore: ArtifactStore | null = null
 
   constructor(config: EngineConfig, renderer: Renderer) {
@@ -275,6 +277,8 @@ export class ExecutionEngine {
     this.eventLog = config.eventLog
     this.contextBudget = config.contextBudget
     this.artifactStore = config.sessionDir ? new ArtifactStore(config.sessionDir) : null
+    this.permissionRules = config.permissionRules ?? {}
+    this.permissionManager = new PermissionManager(undefined, this.permissionRules)
 
     // Initialize knowledge extractor if knowledge base is configured
     if (config.knowledgeBase) {

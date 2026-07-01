@@ -37,6 +37,7 @@ import { DispatchManager } from '../src/core/dispatch.js'
 import { loadMcpTools, disconnectAll } from '../src/services/mcp/loader.js'
 import type { ConnectedMcpClient } from '../src/services/mcp/client.js'
 import { loadSettingsWithDiagnostics } from '../src/config/settings.js'
+import { loadPermissionRules } from '../src/config/permissionRules.js'
 import { HookRunner, NoopHookRunner } from '../src/config/hooks.js'
 import { loadSkills, expandSkillPrompt } from '../src/skills/loader.js'
 import type { Skill } from '../src/skills/loader.js'
@@ -1156,6 +1157,7 @@ async function main(): Promise<void> {
     knowledgeBase: kbTotal > 0 ? knowledgeBase : undefined,
     readableRoots: normalizeRuntimeRoots(cwd, settings.runtime?.readableRoots),
     writableRoots: normalizeRuntimeRoots(cwd, settings.runtime?.writableRoots),
+    permissionRules: loadPermissionRules(cwd).rules,
   }
 
   // Plan-mode config: same system prompt + planMode=true (engine filters write tools)

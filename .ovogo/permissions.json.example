@@ -1,0 +1,17 @@
+{
+  "allow": [
+    "Read",
+    "Glob",
+    "Grep",
+    "Bash(nmap*)",
+    "Bash(scan*)"
+  ],
+  "deny": [
+    "Bash(**rm -rf**)",
+    "Bash(**mkfs**)",
+    "Bash(**dd **)",
+    "Write(/etc/**)",
+    "Write(/boot/**)",
+    "Bash(curl**localhost**)"
+  ]
+}
