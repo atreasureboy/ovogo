@@ -24,11 +24,12 @@ import { DocReadTool } from './docRead.js'
 import { KnowledgeQueryTool } from './knowledgeQuery.js'
 import { EnvAnalyzerTool } from './envAnalyzer.js'
 import { TechniqueGeneratorTool } from './techniqueGenerator.js'
+import { PayloadGeneratorTool } from './payloadGenerator.js'
 import type { KnowledgeBase } from '../core/knowledgeBase.js'
 
 const READ_ONLY_TOOLS = new Set([
   'Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'FindingList',
-  'WeaponRadar', 'DocRead', 'EnvAnalyzer', 'TechniqueGenerator',
+  'WeaponRadar', 'DocRead', 'EnvAnalyzer', 'TechniqueGenerator', 'PayloadGenerator',
   'KnowledgeQuery', 'CheckDispatch', 'GetDispatchResult',
 ])
 
@@ -38,11 +39,11 @@ const CONCURRENCY_SAFE_TOOLS = new Set([
   'Bash', 'Agent', 'MultiAgent',
   'DispatchAgent', 'CheckDispatch', 'GetDispatchResult',
   'C2', 'ShellSession', 'TmuxSession',
-  'EnvAnalyzer', 'TechniqueGenerator', 'DocRead', 'KnowledgeQuery',
+  'EnvAnalyzer', 'TechniqueGenerator', 'PayloadGenerator', 'DocRead', 'KnowledgeQuery',
 ])
 
 const CACHEABLE_TOOLS = new Set([
-  'WebFetch', 'WebSearch', 'WeaponRadar', 'DocRead', 'EnvAnalyzer', 'TechniqueGenerator', 'KnowledgeQuery',
+  'WebFetch', 'WebSearch', 'WeaponRadar', 'DocRead', 'EnvAnalyzer', 'TechniqueGenerator', 'PayloadGenerator', 'KnowledgeQuery',
 ])
 
 const LONG_RUNNING_TOOLS = new Set([
@@ -95,6 +96,7 @@ export function createTools(extraTools: Tool[] = [], knowledgeBase?: KnowledgeBa
     new DocReadTool(),
     new EnvAnalyzerTool(),
     new TechniqueGeneratorTool(),
+    new PayloadGeneratorTool(),
     ...extraTools,
   ]
 
@@ -154,4 +156,5 @@ export {
   C2Tool,
   EnvAnalyzerTool,
   TechniqueGeneratorTool,
+  PayloadGeneratorTool,
 }
